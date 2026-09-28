@@ -8,7 +8,6 @@ from datetime import datetime, time, timedelta
 from calendar import monthrange
 from io import BytesIO
 import json
-from html import escape
 import streamlit.components.v1 as components
 
 
@@ -341,27 +340,8 @@ def generar_tsv(df):
     )
 
 
-def generar_html_copia_excel(df):
-    """Genera tabla HTML que mantiene expiry_date como texto al pegar en Excel."""
-    datos = formatear_datos_copia(df)
-    filas = []
-    for valores in datos.itertuples(index=False, name=None):
-        celdas = []
-        for columna, valor in zip(datos.columns, valores):
-            contenido = escape(str(valor)).replace("  ", "&#160;&#160;")
-            if columna == "expiry_date":
-                celdas.append(
-                    f'<td style="mso-number-format:\'\\@\'; white-space:pre">{contenido}</td>'
-                )
-            else:
-                celdas.append(f"<td>{contenido}</td>")
-        filas.append("<tr>" + "".join(celdas) + "</tr>")
-    return "<html><head><meta charset=\"utf-8\"></head><body><table><tbody>" + "".join(filas) + "</tbody></table></body></html>"
-
-
 def boton_copiar_excel(df):
     texto = json.dumps(generar_tsv(df), ensure_ascii=False).replace("</", "<\\/")
-    html = json.dumps(generar_html_copia_excel(df), ensure_ascii=False).replace("</", "<\\/")
     components.html(
         f"""
         <button id="copiar-excel" type="button" style="
@@ -371,19 +351,12 @@ def boton_copiar_excel(df):
         ">Copiar para Excel</button>
         <script>
             const texto = {texto};
-            const html = {html};
             const boton = document.getElementById('copiar-excel');
             boton.addEventListener('click', async () => {{
                 try {{
-                    if (navigator.clipboard.write && window.ClipboardItem) {{
-                        const contenido = new ClipboardItem({{
-                            'text/plain': new Blob([texto], {{ type: 'text/plain' }}),
-                            'text/html': new Blob([html], {{ type: 'text/html' }})
-                        }});
-                        await navigator.clipboard.write([contenido]);
-                    }} else {{
-                        await navigator.clipboard.writeText(texto);
-                    }}
+                    // Texto tabulado solamente: Excel interpreta el apóstrofe inicial
+                    // como prefijo de texto, sin duplicarlo como contenido literal.
+                    await navigator.clipboard.writeText(texto);
                 }} catch (error) {{
                     const campo = document.createElement('textarea');
                     campo.value = texto;
