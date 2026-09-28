@@ -696,7 +696,7 @@ def preparar_vista(df):
     return vista
 
 
-PROVEEDORES_SIN_REGLAS = ['FACCIATECH', 'GTC RIBBON', 'SOLUTION BOX', 'DEMCO LTDA.', 'Otro']
+PROVEEDORES_SIN_REGLAS = ['Facciatech', 'Gtc ribbon', 'Solution box', 'Demco Ltda.', 'Otro']
 PROVEEDORES_CONFIGURADOS = ['Intcomex', 'Kepler', 'Tecnoglobal', 'Nexsys', 'Ingram', 'Coimco', 'Fujicorp']
 
 st.title('Price List Normalizer')
