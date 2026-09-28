@@ -770,7 +770,14 @@ def leer_nuevo_proveedor(archivo, proveedor, fecha, moneda, permitir_pn, hojas_s
     return pd.concat(salida, ignore_index=True), leidos, detalle
 
 
-def procesar_archivos(archivos, fecha, proveedor="Intcomex", moneda_valor="Sin confirmar", permitir_pn=False, hojas_por_archivo=None):
+def moneda_predeterminada(proveedor):
+    return 'CLP' if proveedor in {'Fujicorp', 'Coimco', 'Demco Ltda.', 'Facciatech'} else 'USD'
+
+
+def procesar_archivos(archivos, fecha, proveedor="Intcomex", moneda_valor=None, permitir_pn=False, hojas_por_archivo=None):
+    moneda_valor = moneda_valor or moneda_predeterminada(proveedor)
+    if moneda_valor not in ('USD', 'CLP'):
+        raise ValueError('Selecciona USD o CLP como moneda de la lista.')
     resumen, resultados = [], []
     for numero, archivo in enumerate(archivos, 1):
         nombre = f"{numero}. {archivo.name}"
@@ -783,6 +790,7 @@ def procesar_archivos(archivos, fecha, proveedor="Intcomex", moneda_valor="Sin c
                     archivo, proveedor, fecha, moneda_valor, permitir_pn,
                     hojas_seleccionadas=(hojas_por_archivo or {}).get(numero - 1),
                 )
+                resultado['currency'] = moneda_valor
                 fila.update({'Leídos': leidos, 'Válidos': len(resultado), 'Descartados': leidos-len(resultado), 'Estado': 'Procesado', 'Detalle': detalle})
                 resultado['Archivo de origen'] = nombre
                 resultados.append(resultado)
@@ -820,6 +828,9 @@ def procesar_archivos(archivos, fecha, proveedor="Intcomex", moneda_valor="Sin c
                 resultado = procesar_intcomex_wd(df, fecha)
             else:
                 resultado = procesar_intcomex(df, fecha)
+            # La elección del usuario prevalece sobre los encabezados del archivo.
+            # Solo asigna la moneda; no modifica ni convierte los precios.
+            resultado['currency'] = moneda_valor
             fila['Válidos'] = len(resultado)
             fila['Descartados'] = len(df) - len(resultado)
             fila['Estado'] = 'Procesado'
@@ -912,7 +923,7 @@ if proveedor == 'Ingram' and archivos:
         elif nombres_hojas:
             hojas_por_archivo[indice_archivo] = nombres_hojas
 if proveedor == 'SolutionBox':
-    st.caption('SolutionBox: el PN se usa como código de proveedor y mpn. La marca se copia solo de una columna MARCA. Se excluyen productos por encargo o sin cantidad disponible. Confirma la moneda para las columnas PRECIO LISTA y VALOR; las columnas que indican USD se leen en dólares.')
+    st.caption('SolutionBox: el PN se usa como código de proveedor y mpn. La marca se copia solo de una columna MARCA. Se excluyen productos por encargo o sin cantidad disponible.')
     for indice_archivo, archivo in enumerate(archivos):
         if not archivo.name.lower().endswith(('.xlsx', '.xls')):
             continue
@@ -931,10 +942,15 @@ if proveedor == 'SolutionBox':
             st.warning(f'No se pudieron leer las hojas de {archivo.name}: {error}')
             seleccion_hojas_incompleta = True
 if proveedor == 'Demco Ltda.':
-    st.caption('Demco: se revisan todas las hojas. Se usa Código Interno como código de proveedor, Número de Parte como PN y Precio Neto como costo. Confirma la moneda del archivo antes de procesar.')
-moneda_valor = st.selectbox('Moneda cuando el archivo no la indica (PRECIO / VALOR)', ['Sin confirmar', 'USD', 'CLP']) if proveedor in ['Kepler', 'Tecnoglobal', 'Nexsys', 'Ingram', 'SolutionBox', 'Demco Ltda.'] else 'Sin confirmar'
+    st.caption('Demco: se revisan todas las hojas. Se usa Código Interno como código de proveedor, Número de Parte como PN y Precio Neto como costo.')
+moneda_valor = st.selectbox(
+    'Moneda de la lista', ['USD', 'CLP'],
+    index=1 if moneda_predeterminada(proveedor) == 'CLP' else 0,
+    key=f'moneda_lista_{proveedor}',
+    help='Se aplica a todos los productos del lote, incluso si el encabezado indica otra moneda. No convierte los importes.',
+)
 if proveedor == 'Kepler':
-    st.caption('Kepler: se usa el precio normal; la preventa se excluye. Confirma la moneda si una lista solo dice VALOR.')
+    st.caption('Kepler: se usa el precio normal; la preventa se excluye.')
 permitir_pn = st.checkbox('Confirmo que para Nexsys el CRM acepta el número de parte como código de proveedor') if proveedor == 'Nexsys' else False
 fecha = st.date_input('Fecha de vigencia', value=calcular_expiry_date())
 
