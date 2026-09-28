@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import csv
 import re
+import hashlib
 
 from datetime import datetime, time, timedelta
 from calendar import monthrange
@@ -415,6 +416,13 @@ def normalizar_texto_columna(valor):
     return ' '.join(normalizar_columna(valor).split())
 
 
+def obtener_nombres_hojas(archivo):
+    archivo.seek(0)
+    nombres = pd.ExcelFile(archivo).sheet_names
+    archivo.seek(0)
+    return nombres
+
+
 def procesar_kepler(df, fecha, nombre, moneda_valor):
     df = df.copy()
     df.columns = [normalizar_columna(c) for c in df.columns]
@@ -493,7 +501,7 @@ def procesar_intcomex_wd(df, expiry_date):
     return resultado
 
 
-def leer_nuevo_proveedor(archivo, proveedor, fecha, moneda, permitir_pn):
+def leer_nuevo_proveedor(archivo, proveedor, fecha, moneda, permitir_pn, hojas_seleccionadas=None):
     # Solo se admiten encabezados observados; tránsito y ofertas no sustituyen stock/precio normal.
     codigos = {'Tecnoglobal': ['CODIGO TG', 'CODIGO', 'CODIGO SISTEMA', 'SKU'],
                'Ingram': ['MATERIAL/SKU', 'INGRAM MICRO SKU', 'IM SKU', 'MATERIAL', 'SKU INGRAM'],
@@ -527,7 +535,15 @@ def leer_nuevo_proveedor(archivo, proveedor, fecha, moneda, permitir_pn):
             v = v.replace('.', '')
         return pd.to_numeric(v, errors='coerce')
     archivo.seek(0)
-    hojas = {'CSV': pd.read_csv(archivo, header=None)} if archivo.name.lower().endswith('.csv') else pd.read_excel(archivo, sheet_name=None, header=None)
+    if archivo.name.lower().endswith('.csv'):
+        hojas = {'CSV': pd.read_csv(archivo, header=None)}
+    else:
+        hojas = pd.read_excel(
+            archivo, sheet_name=hojas_seleccionadas or None, header=None
+        )
+        if isinstance(hojas, pd.DataFrame):
+            nombre_hoja = hojas_seleccionadas[0] if hojas_seleccionadas else 'Hoja 1'
+            hojas = {nombre_hoja: hojas}
     preferir_oferta = proveedor == 'Fujicorp'
     salida, omitidas, usadas = [], [], []
     leidos = 0
@@ -547,7 +563,7 @@ def leer_nuevo_proveedor(archivo, proveedor, fecha, moneda, permitir_pn):
             precio_neto = next((c for c in precios if c in cols), None)
             descripcion = next((c for c in cols if c in ['DESCRIPTION', 'MKT NAME', 'MODELO']
                                 or c.startswith('DESCRIPCI')), None)
-            if cod and precio_neto and stk and descripcion:
+            if cod and precio_neto and stk and (descripcion or proveedor == 'Ingram'):
                 candidatos.append((i, cols, cod, precio_neto, stk, pn, ofertas, descripcion))
         if not candidatos:
             omitidas.append(hoja)
@@ -594,7 +610,7 @@ def leer_nuevo_proveedor(archivo, proveedor, fecha, moneda, permitir_pn):
     return pd.concat(salida, ignore_index=True), leidos, detalle
 
 
-def procesar_archivos(archivos, fecha, proveedor="Intcomex", moneda_valor="Sin confirmar", permitir_pn=False):
+def procesar_archivos(archivos, fecha, proveedor="Intcomex", moneda_valor="Sin confirmar", permitir_pn=False, hojas_por_archivo=None):
     resumen, resultados = [], []
     for numero, archivo in enumerate(archivos, 1):
         nombre = f"{numero}. {archivo.name}"
@@ -602,7 +618,10 @@ def procesar_archivos(archivos, fecha, proveedor="Intcomex", moneda_valor="Sin c
                 "Descartados": 0, "Estado": "", "Detalle": ""}
         try:
             if proveedor in ['Tecnoglobal', 'Nexsys', 'Ingram', 'Coimco', 'Fujicorp']:
-                resultado, leidos, detalle = leer_nuevo_proveedor(archivo, proveedor, fecha, moneda_valor, permitir_pn)
+                resultado, leidos, detalle = leer_nuevo_proveedor(
+                    archivo, proveedor, fecha, moneda_valor, permitir_pn,
+                    hojas_seleccionadas=(hojas_por_archivo or {}).get(numero - 1),
+                )
                 fila.update({'Leídos': leidos, 'Válidos': len(resultado), 'Descartados': leidos-len(resultado), 'Estado': 'Procesado', 'Detalle': detalle})
                 resultado['Archivo de origen'] = nombre
                 resultados.append(resultado)
@@ -677,22 +696,72 @@ def preparar_vista(df):
     return vista
 
 
+PROVEEDORES_SIN_REGLAS = ['FACCIATECH', 'GTC RIBBON', 'SOLUTION BOX', 'DEMCO LTDA.', 'Otro']
+PROVEEDORES_CONFIGURADOS = ['Intcomex', 'Kepler', 'Tecnoglobal', 'Nexsys', 'Ingram', 'Coimco', 'Fujicorp']
+
 st.title('Price List Normalizer')
 st.write('Generador de listas de precios para carga al CRM')
-proveedor = st.selectbox('Proveedor', ['Seleccionar...', 'Ingram', 'Intcomex', 'Tecnoglobal', 'Coimco', 'Fujicorp', 'Kepler', 'Nexsys'])
+proveedor = st.selectbox(
+    'Proveedor',
+    ['Seleccionar...', 'Ingram', 'Intcomex', 'Tecnoglobal', 'Coimco', 'Fujicorp', 'Kepler', 'Nexsys', *PROVEEDORES_SIN_REGLAS],
+)
+if proveedor in PROVEEDORES_SIN_REGLAS:
+    st.info(
+        f'{proveedor}: la opción está disponible, pero aún no tiene reglas de lectura configuradas. '
+        'Para evitar inventar o asignar datos incorrectos, necesitamos revisar una lista de ejemplo.'
+    )
 archivos = st.file_uploader('Subir listas de precios del mismo proveedor',
                            type=['xlsx', 'xls', 'csv'], accept_multiple_files=True)
-st.caption('Puedes seleccionar varios archivos. Tecnoglobal, Nexsys, Ingram, Coimco y Fujicorp: se revisan todas las hojas. Intcomex y Kepler: primera hoja. '
+st.caption('Puedes seleccionar varios archivos. Tecnoglobal, Nexsys, Ingram, Coimco y Fujicorp: se revisan las hojas elegidas. Intcomex y Kepler: primera hoja. '
            'La consolidación CRM está disponible para los proveedores con reglas configuradas.')
+
+import_hash_archivos = tuple(hashlib.sha256(a.getvalue()).hexdigest() for a in archivos)
+hojas_por_archivo = {}
+seleccion_hojas_incompleta = False
+if proveedor == 'Ingram' and archivos:
+    st.subheader('Hojas del Excel')
+    st.caption('La hoja “LISTA DE PRECIOS” se incluye siempre cuando está presente. Puedes elegir varias hojas adicionales; las hojas sin tabla compatible se informarán en el resumen.')
+    for indice_archivo, archivo in enumerate(archivos):
+        if not archivo.name.lower().endswith(('.xlsx', '.xls')):
+            continue
+        try:
+            nombres_hojas = obtener_nombres_hojas(archivo)
+        except Exception as error:
+            st.warning(f'No se pudieron leer las hojas de {archivo.name}: {error}')
+            seleccion_hojas_incompleta = True
+            continue
+        obligatorias = [nombre for nombre in nombres_hojas if normalizar_texto_columna(nombre) in {'LISTA DE PRECIOS', 'LISTAS DE PRECIOS'}]
+        huella = hashlib.sha256(f'{indice_archivo}:{archivo.name}:{import_hash_archivos[indice_archivo]}'.encode('utf-8')).hexdigest()[:16]
+        if obligatorias:
+            opcionales = [nombre for nombre in nombres_hojas if nombre not in obligatorias]
+            elegidas = st.multiselect(f'Otras hojas opcionales — {archivo.name}', options=opcionales, default=[], key=f'hojas_ingram_{huella}') if opcionales else []
+            hojas_por_archivo[indice_archivo] = [*obligatorias, *elegidas]
+            st.success('Hoja obligatoria incluida: ' + ', '.join(obligatorias))
+            with st.expander(f'Vista previa de {obligatorias[0]}'):
+                archivo.seek(0)
+                vista_previa = pd.read_excel(archivo, sheet_name=obligatorias[0], header=None, nrows=18).fillna('').astype(str)
+                st.dataframe(vista_previa, hide_index=True)
+                archivo.seek(0)
+        elif len(nombres_hojas) > 1:
+            elegidas = st.multiselect(f'Hojas a procesar — {archivo.name}', options=nombres_hojas, default=[], key=f'hojas_ingram_{huella}')
+            hojas_por_archivo[indice_archivo] = list(elegidas)
+            if not elegidas:
+                st.warning(f'No se encontró “LISTA DE PRECIOS” en {archivo.name}. Selecciona al menos una hoja para procesar.')
+                seleccion_hojas_incompleta = True
+        elif nombres_hojas:
+            hojas_por_archivo[indice_archivo] = nombres_hojas
 moneda_valor = st.selectbox('Moneda cuando el archivo no la indica (PRECIO / VALOR)', ['Sin confirmar', 'USD', 'CLP']) if proveedor in ['Kepler', 'Tecnoglobal', 'Nexsys', 'Ingram'] else 'Sin confirmar'
 if proveedor == 'Kepler':
     st.caption('Kepler: se usa el precio normal; la preventa se excluye. Confirma la moneda si una lista solo dice VALOR.')
 permitir_pn = st.checkbox('Confirmo que para Nexsys el CRM acepta el número de parte como código de proveedor') if proveedor == 'Nexsys' else False
 fecha = st.date_input('Fecha de vigencia', value=calcular_expiry_date())
 
-# Evitar que se descarguen resultados de archivos, proveedor o fecha anteriores.
-import hashlib
-firma = (proveedor, moneda_valor, permitir_pn, str(fecha), tuple((a.name, hashlib.sha256(a.getvalue()).hexdigest()) for a in archivos))
+# Evitar que se descarguen resultados de archivos, hojas, proveedor o fecha anteriores.
+firma = (
+    proveedor, moneda_valor, permitir_pn, str(fecha),
+    tuple((a.name, import_hash_archivos[i]) for i, a in enumerate(archivos)),
+    tuple((i, tuple(hojas)) for i, hojas in sorted(hojas_por_archivo.items())),
+)
 if st.session_state.get('firma_lote') != firma:
     st.session_state.pop('lote', None)
     st.session_state['firma_lote'] = firma
@@ -705,10 +774,15 @@ if st.button('Procesar listas'):
         st.warning('Primero debes subir una o más listas de precios.')
     elif proveedor == 'Seleccionar...':
         st.warning('Primero debes seleccionar un proveedor.')
-    elif proveedor not in ['Intcomex', 'Kepler', 'Tecnoglobal', 'Nexsys', 'Ingram', 'Coimco', 'Fujicorp']:
-        st.warning('Este proveedor todavía no tiene reglas configuradas. La carga múltiple está disponible para Intcomex y Kepler.')
+    elif proveedor not in PROVEEDORES_CONFIGURADOS:
+        st.warning(f'{proveedor} todavía no tiene reglas configuradas. No se procesó ningún archivo.')
+    elif seleccion_hojas_incompleta:
+        st.warning('Selecciona al menos una hoja válida antes de procesar.')
     else:
-        st.session_state['lote'] = procesar_archivos(archivos, fecha, proveedor, moneda_valor, permitir_pn)
+        st.session_state['lote'] = procesar_archivos(
+            archivos, fecha, proveedor, moneda_valor, permitir_pn,
+            hojas_por_archivo=hojas_por_archivo,
+        )
 
 if 'lote' in st.session_state:
     resumen, combinado = st.session_state['lote']
