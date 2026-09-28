@@ -359,7 +359,6 @@ def generar_html_copia_excel(df):
 
 
 def boton_copiar_excel(df):
-    texto = json.dumps(generar_tsv(df), ensure_ascii=False).replace("</", "<\\/")
     html = json.dumps(generar_html_copia_excel(df), ensure_ascii=False).replace("</", "<\\/")
     components.html(
         f"""
@@ -369,31 +368,41 @@ def boton_copiar_excel(df):
             background:#262730; color:#fafafa; font:inherit; cursor:pointer;
         ">Copiar para Excel</button>
         <script>
-            const texto = {texto};
             const html = {html};
             const boton = document.getElementById('copiar-excel');
+            function copiarHtmlAlternativo() {{
+                const bloque = document.createElement('div');
+                bloque.innerHTML = html;
+                bloque.contentEditable = 'true';
+                bloque.style.position = 'fixed';
+                bloque.style.left = '-10000px';
+                document.body.appendChild(bloque);
+                const rango = document.createRange();
+                rango.selectNodeContents(bloque);
+                const seleccion = window.getSelection();
+                seleccion.removeAllRanges();
+                seleccion.addRange(rango);
+                const copiado = document.execCommand('copy');
+                seleccion.removeAllRanges();
+                bloque.remove();
+                return copiado;
+            }}
             boton.addEventListener('click', async () => {{
                 try {{
                     if (navigator.clipboard.write && window.ClipboardItem) {{
                         const contenido = new ClipboardItem({{
-                            'text/plain': new Blob([texto], {{ type: 'text/plain' }}),
                             'text/html': new Blob([html], {{ type: 'text/html' }})
                         }});
                         await navigator.clipboard.write([contenido]);
                     }} else {{
-                        await navigator.clipboard.writeText(texto);
+                        if (!copiarHtmlAlternativo()) throw new Error('HTML clipboard unavailable');
                     }}
                 }} catch (error) {{
-                    const campo = document.createElement('textarea');
-                    campo.value = texto;
-                    campo.style.position = 'fixed';
-                    campo.style.opacity = '0';
-                    document.body.appendChild(campo);
-                    campo.select();
-                    const copiado = document.execCommand('copy');
-                    campo.remove();
-                    if (!copiado) {{
-                        boton.textContent = 'No se pudo copiar';
+                    try {{
+                        if (!copiarHtmlAlternativo()) throw new Error('HTML clipboard unavailable');
+                    }} catch (errorAlternativo) {{
+                        boton.textContent = 'Error: descarga el Excel';
+                        setTimeout(() => boton.textContent = 'Copiar para Excel', 3500);
                         return;
                     }}
                 }}
@@ -404,7 +413,6 @@ def boton_copiar_excel(df):
         """,
         height=50,
     )
-
 
 def normalizar_columna(valor):
     import unicodedata
@@ -449,7 +457,28 @@ def procesar_kepler(df, fecha, nombre, moneda_valor):
         fuente = fuente.loc[df['LLEGADA'].astype(str).map(normalizar_columna).eq('EN STOCK')]
     resultado = procesar_intcomex(fuente, fecha)
     resultado['currency'] = moneda_valor if precio == 'VALOR' else 'USD'
-    # El formato Kepler validado por el CRM mantiene name vacío.
+    # Copiar solo PN, nombre y marca que Kepler entrega explícitamente.
+    # No deducir esos datos desde SKU ni desde otros campos.
+    columnas_producto = {
+        normalizar_texto_columna(columna): columna for columna in df.columns
+    }
+    campos_kepler = {
+        'mpn': ('PN', 'P/N', 'MPN', 'PART NUMBER', 'PART NUMBER (MPN)',
+                'NUMERO DE PARTE', 'CODIGO FABRICANTE'),
+        'name': ('NOMBRE', 'NAME', 'DESCRIPTION', 'DESCRIPCION',
+                 'PRODUCT NAME', 'PRODUCTO', 'MODELO'),
+        'brand': ('MARCA', 'BRAND', 'MANUFACTURER', 'FABRICANTE'),
+    }
+    for destino, alias in campos_kepler.items():
+        columna = next(
+            (columnas_producto[normalizar_texto_columna(opcion)]
+             for opcion in alias
+             if normalizar_texto_columna(opcion) in columnas_producto),
+            None,
+        )
+        if columna:
+            valores = df.loc[resultado.index, columna].fillna('').astype(str).str.strip()
+            resultado[destino] = valores.replace({'nan': '', 'None': ''})
     return resultado
 
 
