@@ -496,13 +496,15 @@ def procesar_intcomex_wd(df, expiry_date):
 def leer_nuevo_proveedor(archivo, proveedor, fecha, moneda, permitir_pn):
     # Solo se admiten encabezados observados; tránsito y ofertas no sustituyen stock/precio normal.
     codigos = {'Tecnoglobal': ['CODIGO TG', 'CODIGO', 'CODIGO SISTEMA', 'SKU'],
-               'Ingram': ['MATERIAL/SKU', 'INGRAM MICRO SKU', 'IM SKU', 'MATERIAL'],
+               'Ingram': ['MATERIAL/SKU', 'INGRAM MICRO SKU', 'IM SKU', 'MATERIAL', 'SKU INGRAM'],
                'Coimco': ['CODIGO', 'CODIGO SISTEMA', 'SKU'],
                'Fujicorp': ['CODIGO', 'SKU'],
                'Nexsys': ['SKU', 'CODIGO']}[proveedor]
     precios = ['PV OFERTA C/U', 'PRECIO UNITARIO US$', 'PRECIO USD (S/IVA)', 'PRECIOS USD', 'PRECIO USD$',
                'PRECIO US$', 'VALOR USD', 'PRECIO', 'MAYORISTA', 'DISTRIBUIDOR', 'VALOR $',
                'VALOR', 'NETO']
+    if proveedor == 'Ingram':
+        precios = ['COSTO', *precios]
     stocks = ['STOCK SIN RESERVA', 'CANTIDAD', 'STOCK DISPONIBLE', 'STOCK REFERENCIAL', 'STOCK']
     def norm(v):
         return normalizar_texto_columna(v)
@@ -533,7 +535,10 @@ def leer_nuevo_proveedor(archivo, proveedor, fecha, moneda, permitir_pn):
         candidatos = []
         for i, row in bruto.iterrows():
             cols = list(row.map(norm))
-            pn = next((c for c in ['NUMERO DE PARTE', 'PART_NUMBER', 'PART NUMBER', 'PARTNUMBER', 'P/N'] if c in cols), None)
+            opciones_pn = ['NUMERO DE PARTE', 'PART_NUMBER', 'PART NUMBER', 'PARTNUMBER', 'P/N']
+            if proveedor == 'Ingram':
+                opciones_pn.append('PN')
+            pn = next((c for c in opciones_pn if c in cols), None)
             cod = next((c for c in codigos if c in cols), None)
             if not cod and proveedor == 'Nexsys':
                 cod = pn
