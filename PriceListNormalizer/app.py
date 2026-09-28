@@ -531,7 +531,88 @@ def procesar_intcomex_wd(df, expiry_date):
     return resultado
 
 
+def leer_solutionbox(archivo, fecha, moneda, hojas_seleccionadas=None):
+    """Lee las tablas de SolutionBox sin convertir plazos de entrega en stock."""
+    if not archivo.name.lower().endswith(('.xlsx', '.xls')):
+        raise ValueError('SolutionBox: carga una lista Excel (.xlsx o .xls).')
+    if hojas_seleccionadas == []:
+        raise ValueError('SolutionBox: selecciona al menos una hoja.')
+    archivo.seek(0)
+    hojas = pd.read_excel(archivo, sheet_name=hojas_seleccionadas, header=None, dtype=object)
+    salida, usadas, omitidas = [], [], []
+    leidos = 0
+
+    def texto(valor):
+        if pd.isna(valor):
+            return ''
+        if isinstance(valor, (int, float)) and not isinstance(valor, bool):
+            if float(valor).is_integer():
+                return str(int(valor))
+        return str(valor).strip()
+
+    def cantidad(valor):
+        # Solo cantidades explícitas. "POR ENCARGO 90 DÍAS" no equivale a 90.
+        if isinstance(valor, str) and not re.fullmatch(r'\+?\d+(?:[.,]\d+)?\+?', valor.strip()):
+            return float('nan')
+        return limpiar_numero(valor)
+
+    for hoja, bruto in hojas.items():
+        encabezados = []
+        for indice, fila in bruto.iterrows():
+            columnas = {normalizar_texto_columna(v): i for i, v in enumerate(fila)}
+            def buscar(*opciones):
+                return next((columnas[c] for c in opciones if c in columnas), None)
+            pn = buscar('PN', 'PART NUMBER', 'P/N')
+            codigo = pn if pn is not None else buscar('PRODUCT')
+            precio = buscar('PRECIO LISTA', 'VALOR', 'PRECIO UNITARIO US$NETO',
+                            'PRECIO UNITARIO US$', 'PRECIO USD (NETO)')
+            stock = buscar('STOCK', 'STOCK DISPONIBLE', 'CANTIDAD', 'DISPONIBILIDAD')
+            nombre = buscar('DESCRIPCION AMPLIADA', 'DESCRIPCION', 'COMMENT', 'MODELO')
+            if all(c is not None for c in (codigo, precio, stock, nombre)):
+                encabezados.append((indice, codigo, pn, precio, stock, nombre,
+                                    buscar('MARCA'), buscar('ESTADO')))
+        if not encabezados:
+            omitidas.append(hoja)
+            continue
+        validos_hoja = 0
+        for posicion, (inicio, codigo, pn, precio, stock, nombre, marca, estado) in enumerate(encabezados):
+            fin = encabezados[posicion + 1][0] if posicion + 1 < len(encabezados) else len(bruto)
+            datos = bruto.iloc[inicio + 1:fin].dropna(how='all')
+            datos = datos.loc[datos.iloc[:, codigo].notna() &
+                              (datos.iloc[:, precio].notna() | datos.iloc[:, stock].notna())]
+            leidos += len(datos)
+            titulo_precio = normalizar_texto_columna(bruto.iloc[inicio, precio])
+            divisa = 'USD' if 'USD' in titulo_precio or 'US$' in titulo_precio else moneda
+            if divisa not in ('USD', 'CLP'):
+                raise ValueError(f'SolutionBox: confirma la moneda de {titulo_precio} (hoja {hoja}).')
+            cantidades = datos.iloc[:, stock].map(cantidad)
+            if estado is not None:
+                disponible = datos.iloc[:, estado].fillna('').map(normalizar_texto_columna)
+                cantidades = cantidades.where(disponible.isin(['', 'STOCK', 'EN STOCK', 'DISPONIBLE']))
+            base = pd.DataFrame({'SKU': datos.iloc[:, codigo].map(texto),
+                                 'venta neto usd': datos.iloc[:, precio].map(limpiar_numero),
+                                 'stock actual': cantidades}, index=datos.index)
+            resultado = procesar_intcomex(base, fecha)
+            resultado['currency'] = divisa
+            for destino, columna in [('mpn', pn), ('name', nombre), ('brand', marca)]:
+                if columna is not None:
+                    resultado[destino] = datos.loc[resultado.index].iloc[:, columna].map(texto)
+            validos_hoja += len(resultado)
+            salida.append(resultado)
+        usadas.append(f'{hoja} ({validos_hoja} productos)')
+    if not salida:
+        raise ValueError('SolutionBox: no se encontraron tablas con identificador, precio y stock.')
+    detalle = 'Hojas procesadas: ' + ', '.join(usadas)
+    if omitidas:
+        detalle += '. Hojas sin tabla de precios: ' + ', '.join(omitidas)
+    detalle += '. Se excluyen productos sin stock numérico positivo o con precio inválido.'
+    return pd.concat(salida, ignore_index=True), leidos, detalle
+
+
+
 def leer_nuevo_proveedor(archivo, proveedor, fecha, moneda, permitir_pn, hojas_seleccionadas=None):
+    if proveedor == 'SolutionBox':
+        return leer_solutionbox(archivo, fecha, moneda, hojas_seleccionadas)
     # Solo se admiten encabezados observados; tránsito y ofertas no sustituyen stock/precio normal.
     codigos = {'Tecnoglobal': ['CODIGO TG', 'CODIGO', 'CODIGO SISTEMA', 'SKU'],
                'Ingram': ['MATERIAL/SKU', 'INGRAM MICRO SKU', 'IM SKU', 'MATERIAL', 'SKU INGRAM'],
@@ -687,7 +768,7 @@ def procesar_archivos(archivos, fecha, proveedor="Intcomex", moneda_valor="Sin c
         fila = {"Archivo": nombre, "Leídos": 0, "Válidos": 0,
                 "Descartados": 0, "Estado": "", "Detalle": ""}
         try:
-            if (proveedor in ['Tecnoglobal', 'Nexsys', 'Ingram', 'Coimco', 'Fujicorp']
+            if (proveedor in ['Tecnoglobal', 'Nexsys', 'Ingram', 'Coimco', 'Fujicorp', 'SolutionBox']
                     or archivo.name.lower().endswith('.pdf')):
                 resultado, leidos, detalle = leer_nuevo_proveedor(
                     archivo, proveedor, fecha, moneda_valor, permitir_pn,
@@ -767,14 +848,14 @@ def preparar_vista(df):
     return vista
 
 
-PROVEEDORES_SIN_REGLAS = ['Facciatech', 'Gtc ribbon', 'Solution box', 'Demco Ltda.', 'Otro']
-PROVEEDORES_CONFIGURADOS = ['Intcomex', 'Kepler', 'Tecnoglobal', 'Nexsys', 'Ingram', 'Coimco', 'Fujicorp']
+PROVEEDORES_SIN_REGLAS = ['Facciatech', 'Gtc ribbon', 'Demco Ltda.', 'Otro']
+PROVEEDORES_CONFIGURADOS = ['Intcomex', 'Kepler', 'Tecnoglobal', 'Nexsys', 'Ingram', 'Coimco', 'Fujicorp', 'SolutionBox']
 
 st.title('Price List Normalizer')
 st.write('Generador de listas de precios para carga al CRM')
 proveedor = st.selectbox(
     'Proveedor',
-    ['Seleccionar...', 'Ingram', 'Intcomex', 'Tecnoglobal', 'Coimco', 'Fujicorp', 'Kepler', 'Nexsys', *PROVEEDORES_SIN_REGLAS],
+    ['Seleccionar...', 'Ingram', 'Intcomex', 'Tecnoglobal', 'Coimco', 'Fujicorp', 'Kepler', 'Nexsys', 'SolutionBox', *PROVEEDORES_SIN_REGLAS],
 )
 if proveedor in PROVEEDORES_SIN_REGLAS:
     st.info(
@@ -821,7 +902,26 @@ if proveedor == 'Ingram' and archivos:
                 seleccion_hojas_incompleta = True
         elif nombres_hojas:
             hojas_por_archivo[indice_archivo] = nombres_hojas
-moneda_valor = st.selectbox('Moneda cuando el archivo no la indica (PRECIO / VALOR)', ['Sin confirmar', 'USD', 'CLP']) if proveedor in ['Kepler', 'Tecnoglobal', 'Nexsys', 'Ingram'] else 'Sin confirmar'
+if proveedor == 'SolutionBox':
+    st.caption('SolutionBox: el PN se usa como código de proveedor y mpn. La marca se copia solo de una columna MARCA. Se excluyen productos por encargo o sin cantidad disponible. Confirma la moneda para las columnas PRECIO LISTA y VALOR; las columnas que indican USD se leen en dólares.')
+    for indice_archivo, archivo in enumerate(archivos):
+        if not archivo.name.lower().endswith(('.xlsx', '.xls')):
+            continue
+        try:
+            nombres_hojas = obtener_nombres_hojas(archivo)
+            elegidas = st.multiselect(
+                f'Hojas a procesar — {archivo.name}', options=nombres_hojas,
+                default=nombres_hojas,
+                key=f'hojas_solutionbox_{indice_archivo}_{import_hash_archivos[indice_archivo]}',
+            )
+            hojas_por_archivo[indice_archivo] = list(elegidas)
+            if not elegidas:
+                st.warning('Selecciona al menos una hoja para procesar.')
+                seleccion_hojas_incompleta = True
+        except Exception as error:
+            st.warning(f'No se pudieron leer las hojas de {archivo.name}: {error}')
+            seleccion_hojas_incompleta = True
+moneda_valor = st.selectbox('Moneda cuando el archivo no la indica (PRECIO / VALOR)', ['Sin confirmar', 'USD', 'CLP']) if proveedor in ['Kepler', 'Tecnoglobal', 'Nexsys', 'Ingram', 'SolutionBox'] else 'Sin confirmar'
 if proveedor == 'Kepler':
     st.caption('Kepler: se usa el precio normal; la preventa se excluye. Confirma la moneda si una lista solo dice VALOR.')
 permitir_pn = st.checkbox('Confirmo que para Nexsys el CRM acepta el número de parte como código de proveedor') if proveedor == 'Nexsys' else False
