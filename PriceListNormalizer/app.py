@@ -341,7 +341,7 @@ def generar_tsv(df):
 
 
 def generar_html_copia_excel(df):
-    """Copia fechas como texto y conserva sus dos espacios ASCII."""
+    """Copia fechas con el prefijo de texto interno de Excel."""
     datos = formatear_datos_copia(df)
     filas = []
     for valores in datos.itertuples(index=False, name=None):
@@ -349,14 +349,16 @@ def generar_html_copia_excel(df):
         for columna, valor in zip(datos.columns, valores):
             contenido = escape(str(valor))
             if columna == 'expiry_date':
+                # x:str pasa el apóstrofe como prefijo de Excel, no como texto
+                # visible. El contenido de la celda conserva solo la fecha.
+                valor_excel = escape("'" + str(valor), quote=True) if valor else ''
                 celdas.append(
-                    f'<td style="mso-number-format:\'\\@\'"><pre style="margin:0; font-family:inherit">{contenido}</pre></td>'
+                    f'<td x:str="{valor_excel}"><pre style="margin:0; font-family:inherit">{contenido}</pre></td>'
                 )
             else:
                 celdas.append(f'<td>{contenido}</td>')
         filas.append('<tr>' + ''.join(celdas) + '</tr>')
-    return '<html><head><meta charset="utf-8"></head><body><table><tbody>' + ''.join(filas) + '</tbody></table></body></html>'
-
+    return '<html xmlns:x="urn:schemas-microsoft-com:office:excel"><head><meta charset="utf-8"></head><body><table xmlns:x="urn:schemas-microsoft-com:office:excel"><tbody>' + ''.join(filas) + '</tbody></table></body></html>'
 
 def boton_copiar_excel(df):
     html = json.dumps(generar_html_copia_excel(df), ensure_ascii=False).replace("</", "<\\/")
