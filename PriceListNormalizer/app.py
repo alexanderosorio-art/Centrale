@@ -480,8 +480,11 @@ def leer_nuevo_proveedor(archivo, proveedor, fecha, moneda, permitir_pn, hojas_s
                'Ingram': ['MATERIAL/SKU', 'INGRAM MICRO SKU', 'IM SKU', 'MATERIAL', 'SKU INGRAM'],
                'Coimco': ['CODIGO', 'CODIGO SISTEMA', 'SKU'],
                'Fujicorp': ['CODIGO', 'SKU'],
-               'Nexsys': ['SKU', 'CODIGO']}[proveedor]
+               'Nexsys': ['SKU', 'CODIGO'],
+               'Intcomex': ['SKU', 'MATERIAL/SKU', 'MATERIAL', 'CODIGO'],
+               'Kepler': ['SKU', 'SKU/LINK', 'CODIGO']}[proveedor]
     precios = ['PV OFERTA C/U', 'PRECIO UNITARIO US$', 'PRECIO USD (S/IVA)', 'PRECIOS USD', 'PRECIO USD$',
+               'VALOR USD + IVA', 'PRECIO ESPECIAL NETO UNIT. CENTRALE', 'VENTA NETO USD',
                'PRECIO US$', 'VALOR USD', 'PRECIO', 'MAYORISTA', 'DISTRIBUIDOR', 'VALOR $',
                'VALOR', 'NETO']
     if proveedor == 'Ingram':
@@ -508,7 +511,43 @@ def leer_nuevo_proveedor(archivo, proveedor, fecha, moneda, permitir_pn, hojas_s
             v = v.replace('.', '')
         return pd.to_numeric(v, errors='coerce')
     archivo.seek(0)
-    if archivo.name.lower().endswith('.csv'):
+    es_pdf = archivo.name.lower().endswith('.pdf')
+    if es_pdf:
+        import pdfplumber
+
+        hojas = {}
+        tiene_texto = False
+        with pdfplumber.open(archivo) as documento:
+            for numero_pagina, pagina in enumerate(documento.pages, 1):
+                tiene_texto = tiene_texto or bool(pagina.extract_text())
+                tablas = pagina.extract_tables()
+                if not tablas:
+                    tablas = pagina.extract_tables(table_settings={
+                        'vertical_strategy': 'text',
+                        'horizontal_strategy': 'text',
+                        'min_words_vertical': 1,
+                        'min_words_horizontal': 1,
+                    })
+                for numero_tabla, tabla in enumerate(tablas, 1):
+                    if not tabla:
+                        continue
+                    ancho = max(len(fila) for fila in tabla)
+                    filas = [
+                        list(fila) + [None] * (ancho - len(fila))
+                        for fila in tabla
+                    ]
+                    hojas[f'Página {numero_pagina}, tabla {numero_tabla}'] = pd.DataFrame(filas)
+        if not hojas:
+            if not tiene_texto:
+                raise ValueError(
+                    'El PDF parece escaneado o no contiene texto seleccionable. '
+                    'Este formato requiere OCR antes de procesarlo.'
+                )
+            raise ValueError(
+                'No se detectaron tablas en el PDF. Verifica que el documento '
+                'contenga una tabla de texto y no una imagen.'
+            )
+    elif archivo.name.lower().endswith('.csv'):
         hojas = {'CSV': pd.read_csv(archivo, header=None)}
     else:
         hojas = pd.read_excel(
@@ -545,7 +584,8 @@ def leer_nuevo_proveedor(archivo, proveedor, fecha, moneda, permitir_pn, hojas_s
         for posicion, (inicio, cols, cod, pre, stk, pn, ofertas, descripcion) in enumerate(candidatos):
             if proveedor == 'Nexsys' and cod == pn and not permitir_pn:
                 raise ValueError('Nexsys: confirma que el CRM acepta el número de parte como provider_code.')
-            divisa = 'CLP' if proveedor in ['Coimco', 'Fujicorp'] else ('USD' if 'USD' in pre or 'US$' in pre else moneda)
+            divisa = ('CLP' if proveedor in ['Coimco', 'Fujicorp'] else
+                      'USD' if proveedor == 'Intcomex' or 'USD' in pre or 'US$' in pre else moneda)
             if divisa == 'Sin confirmar':
                 raise ValueError('Confirma la moneda de la columna PRECIO antes de procesar este archivo.')
             fin = candidatos[posicion+1][0] if posicion+1 < len(candidatos) else len(bruto)
@@ -577,7 +617,7 @@ def leer_nuevo_proveedor(archivo, proveedor, fecha, moneda, permitir_pn, hojas_s
             salida.append(result)
     if not salida:
         raise ValueError('No se encontraron hojas con código, stock y precio compatibles.')
-    detalle = 'Hojas procesadas: ' + ', '.join(usadas)
+    detalle = ('Tablas PDF procesadas: ' if es_pdf else 'Hojas procesadas: ') + ', '.join(usadas)
     if omitidas:
         detalle += '. Hojas sin tabla compatible: ' + ', '.join(omitidas)
     return pd.concat(salida, ignore_index=True), leidos, detalle
@@ -590,7 +630,8 @@ def procesar_archivos(archivos, fecha, proveedor="Intcomex", moneda_valor="Sin c
         fila = {"Archivo": nombre, "Leídos": 0, "Válidos": 0,
                 "Descartados": 0, "Estado": "", "Detalle": ""}
         try:
-            if proveedor in ['Tecnoglobal', 'Nexsys', 'Ingram', 'Coimco', 'Fujicorp']:
+            if (proveedor in ['Tecnoglobal', 'Nexsys', 'Ingram', 'Coimco', 'Fujicorp']
+                    or archivo.name.lower().endswith('.pdf')):
                 resultado, leidos, detalle = leer_nuevo_proveedor(
                     archivo, proveedor, fecha, moneda_valor, permitir_pn,
                     hojas_seleccionadas=(hojas_por_archivo or {}).get(numero - 1),
@@ -684,8 +725,8 @@ if proveedor in PROVEEDORES_SIN_REGLAS:
         'Para evitar inventar o asignar datos incorrectos, necesitamos revisar una lista de ejemplo.'
     )
 archivos = st.file_uploader('Subir listas de precios del mismo proveedor',
-                           type=['xlsx', 'xls', 'csv'], accept_multiple_files=True)
-st.caption('Puedes seleccionar varios archivos. Tecnoglobal, Nexsys, Ingram, Coimco y Fujicorp: se revisan las hojas elegidas. Intcomex y Kepler: primera hoja. '
+                           type=['xlsx', 'xls', 'csv', 'pdf'], accept_multiple_files=True)
+st.caption('Puedes seleccionar varios archivos. PDF: se recorren todas las páginas y se extraen tablas con texto seleccionable; los PDF escaneados requieren OCR. Tecnoglobal, Nexsys, Ingram, Coimco y Fujicorp: se revisan las hojas elegidas. Intcomex y Kepler: primera hoja. '
            'La consolidación CRM está disponible para los proveedores con reglas configuradas.')
 
 import_hash_archivos = tuple(hashlib.sha256(a.getvalue()).hexdigest() for a in archivos)
