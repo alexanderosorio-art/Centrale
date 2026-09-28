@@ -620,13 +620,16 @@ def leer_nuevo_proveedor(archivo, proveedor, fecha, moneda, permitir_pn, hojas_s
                'Fujicorp': ['CODIGO', 'SKU'],
                'Nexsys': ['SKU', 'CODIGO'],
                'Intcomex': ['SKU', 'MATERIAL/SKU', 'MATERIAL', 'CODIGO'],
-               'Kepler': ['SKU', 'SKU/LINK', 'CODIGO']}[proveedor]
+               'Kepler': ['SKU', 'SKU/LINK', 'CODIGO'],
+               'Demco Ltda.': ['CODIGO INTERNO']}[proveedor]
     precios = ['PV OFERTA C/U', 'PRECIO UNITARIO US$', 'PRECIO USD (S/IVA)', 'PRECIOS USD', 'PRECIO USD$',
                'VALOR USD + IVA', 'PRECIO ESPECIAL NETO UNIT. CENTRALE', 'VENTA NETO USD',
                'PRECIO US$', 'VALOR USD', 'PRECIO', 'MAYORISTA', 'DISTRIBUIDOR', 'VALOR $',
                'VALOR', 'NETO']
     if proveedor == 'Ingram':
         precios = ['COSTO', *precios]
+    if proveedor == 'Demco Ltda.':
+        precios = ['PRECIO NETO']
     stocks = ['STOCK SIN RESERVA', 'CANTIDAD', 'STOCK DISPONIBLE', 'STOCK REFERENCIAL', 'STOCK']
     def norm(v):
         return normalizar_texto_columna(v)
@@ -713,6 +716,8 @@ def leer_nuevo_proveedor(archivo, proveedor, fecha, moneda, permitir_pn, hojas_s
             precio_neto = next((c for c in precios if c in cols), None)
             descripcion = next((c for c in cols if c in ['DESCRIPTION', 'MKT NAME', 'MODELO']
                                 or c.startswith('DESCRIPCI')), None)
+            if proveedor == 'Demco Ltda.':
+                descripcion = 'NOMBRE' if 'NOMBRE' in cols else None
             if cod and precio_neto and stk and (descripcion or proveedor == 'Ingram'):
                 candidatos.append((i, cols, cod, precio_neto, stk, pn, ofertas, descripcion))
         if not candidatos:
@@ -739,9 +744,13 @@ def leer_nuevo_proveedor(archivo, proveedor, fecha, moneda, permitir_pn, hojas_s
                     )
                 matriz_precios = pd.concat(precios_opcion, axis=1)
                 precio_base = matriz_precios.where(matriz_precios > 0).min(axis=1)
+            cantidades = datos.iloc[:,cols.index(stk)].map(numero)
+            if proveedor == 'Demco Ltda.':
+                # No interpretar plazos o comentarios como cantidades.
+                cantidades = pd.to_numeric(datos.iloc[:,cols.index(stk)], errors='coerce')
             base = pd.DataFrame({'SKU': datos.iloc[:,cols.index(cod)],
                 'venta neto usd': precio_base,
-                'stock actual': datos.iloc[:,cols.index(stk)].map(numero)})
+                'stock actual': cantidades})
             result = procesar_intcomex(base, fecha)
             result['currency'] = divisa
             # La marca solo se toma de una columna explícita del archivo.
@@ -768,7 +777,7 @@ def procesar_archivos(archivos, fecha, proveedor="Intcomex", moneda_valor="Sin c
         fila = {"Archivo": nombre, "Leídos": 0, "Válidos": 0,
                 "Descartados": 0, "Estado": "", "Detalle": ""}
         try:
-            if (proveedor in ['Tecnoglobal', 'Nexsys', 'Ingram', 'Coimco', 'Fujicorp', 'SolutionBox']
+            if (proveedor in ['Tecnoglobal', 'Nexsys', 'Ingram', 'Coimco', 'Fujicorp', 'SolutionBox', 'Demco Ltda.']
                     or archivo.name.lower().endswith('.pdf')):
                 resultado, leidos, detalle = leer_nuevo_proveedor(
                     archivo, proveedor, fecha, moneda_valor, permitir_pn,
@@ -848,14 +857,14 @@ def preparar_vista(df):
     return vista
 
 
-PROVEEDORES_SIN_REGLAS = ['Facciatech', 'Gtc ribbon', 'Demco Ltda.', 'Otro']
-PROVEEDORES_CONFIGURADOS = ['Intcomex', 'Kepler', 'Tecnoglobal', 'Nexsys', 'Ingram', 'Coimco', 'Fujicorp', 'SolutionBox']
+PROVEEDORES_SIN_REGLAS = ['Facciatech', 'Gtc ribbon', 'Otro']
+PROVEEDORES_CONFIGURADOS = ['Intcomex', 'Kepler', 'Tecnoglobal', 'Nexsys', 'Ingram', 'Coimco', 'Fujicorp', 'SolutionBox', 'Demco Ltda.']
 
 st.title('Price List Normalizer')
 st.write('Generador de listas de precios para carga al CRM')
 proveedor = st.selectbox(
     'Proveedor',
-    ['Seleccionar...', 'Ingram', 'Intcomex', 'Tecnoglobal', 'Coimco', 'Fujicorp', 'Kepler', 'Nexsys', 'SolutionBox', *PROVEEDORES_SIN_REGLAS],
+    ['Seleccionar...', 'Ingram', 'Intcomex', 'Tecnoglobal', 'Coimco', 'Fujicorp', 'Kepler', 'Nexsys', 'SolutionBox', 'Demco Ltda.', *PROVEEDORES_SIN_REGLAS],
 )
 if proveedor in PROVEEDORES_SIN_REGLAS:
     st.info(
@@ -921,7 +930,9 @@ if proveedor == 'SolutionBox':
         except Exception as error:
             st.warning(f'No se pudieron leer las hojas de {archivo.name}: {error}')
             seleccion_hojas_incompleta = True
-moneda_valor = st.selectbox('Moneda cuando el archivo no la indica (PRECIO / VALOR)', ['Sin confirmar', 'USD', 'CLP']) if proveedor in ['Kepler', 'Tecnoglobal', 'Nexsys', 'Ingram', 'SolutionBox'] else 'Sin confirmar'
+if proveedor == 'Demco Ltda.':
+    st.caption('Demco: se revisan todas las hojas. Se usa Código Interno como código de proveedor, Número de Parte como PN y Precio Neto como costo. Confirma la moneda del archivo antes de procesar.')
+moneda_valor = st.selectbox('Moneda cuando el archivo no la indica (PRECIO / VALOR)', ['Sin confirmar', 'USD', 'CLP']) if proveedor in ['Kepler', 'Tecnoglobal', 'Nexsys', 'Ingram', 'SolutionBox', 'Demco Ltda.'] else 'Sin confirmar'
 if proveedor == 'Kepler':
     st.caption('Kepler: se usa el precio normal; la preventa se excluye. Confirma la moneda si una lista solo dice VALOR.')
 permitir_pn = st.checkbox('Confirmo que para Nexsys el CRM acepta el número de parte como código de proveedor') if proveedor == 'Nexsys' else False
