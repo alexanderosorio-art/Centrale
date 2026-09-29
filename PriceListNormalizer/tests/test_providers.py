@@ -1,0 +1,150 @@
+"""Pruebas con archivos sintéticos; no incluyen listas comerciales privadas."""
+import sys
+import unittest
+from datetime import date
+from io import BytesIO
+from pathlib import Path
+
+import openpyxl
+import pandas as pd
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from processing import procesar_archivos, moneda_predeterminada, detectar_proveedor_lote
+from providers import REGISTRO
+from common import consolidar
+from exports import generar_excel, generar_html_copia_excel, generar_tsv
+
+FECHA = date(2026, 9, 30)
+PLANTILLAS = {
+    'Intcomex': ['SKU', 'venta neto usd', 'stock actual'],
+    'Kepler': ['CODIGO', 'VALOR', 'STOCK', 'DESCRIPCION'],
+    'Tecnoglobal': ['CODIGO TG', 'PRECIO', 'STOCK', 'DESCRIPCION'],
+    'Ingram': ['SKU INGRAM', 'COSTO', 'STOCK'],
+    'Coimco': ['CODIGO', 'PRECIO', 'STOCK', 'DESCRIPCION'],
+    'Fujicorp': ['CODIGO', 'PRECIO', 'STOCK', 'DESCRIPCION'],
+    'Nexsys': ['SKU', 'PRECIO', 'STOCK', 'DESCRIPCION'],
+    'SolutionBox': ['PN', 'PRECIO LISTA', 'STOCK', 'DESCRIPCION'],
+    'Demco Ltda.': ['Código Interno', 'Precio Neto', 'Stock', 'Nombre'],
+}
+
+
+def excel(headers, rows, name='lista.xlsx', second_sheet=False):
+    stream = BytesIO()
+    with pd.ExcelWriter(stream, engine='openpyxl') as writer:
+        pd.DataFrame(rows, columns=headers).to_excel(writer, index=False, sheet_name='MATERIAL')
+        if second_sheet:
+            pd.DataFrame(rows, columns=headers).to_excel(writer, index=False, sheet_name='OTRA')
+    stream.name = name
+    stream.seek(0)
+    return stream
+
+
+class ProviderTests(unittest.TestCase):
+    def test_all_configured_providers_and_currency_override(self):
+        for provider, headers in PLANTILLAS.items():
+            for currency in (None, 'USD', 'CLP'):
+                with self.subTest(provider=provider, currency=currency):
+                    rows = [[code, price, stock] + (['Producto'] if len(headers) == 4 else [])
+                            for code, price, stock in [('001', 12.75, 3), ('002', 15, 0), ('003', 0, 5)]]
+                    summary, result = procesar_archivos([excel(headers, rows)], FECHA, provider, currency)
+                    self.assertEqual(summary.iloc[0]['Estado'], 'Procesado', summary.to_dict())
+                    self.assertEqual(len(result), 1)
+                    self.assertEqual(result.iloc[0].currency_unaware_cost_neto, 12.75)
+                    self.assertEqual(result.iloc[0].quantity, 3)
+                    self.assertEqual(result.iloc[0].currency, currency or moneda_predeterminada(provider))
+                    self.assertEqual(result.iloc[0].brand, '')
+                    self.assertEqual(result.iloc[0].expiry_date, '30-09-2026  12:00')
+
+    def test_no_provider_imports_another_provider(self):
+        import ast
+        root = Path(__file__).resolve().parents[1] / 'providers'
+        for path in root.glob('*.py'):
+            if path.name == '__init__.py':
+                continue
+            for node in ast.walk(ast.parse(path.read_text(encoding='utf-8'))):
+                if isinstance(node, ast.ImportFrom):
+                    self.assertFalse(node.level or (node.module or '').startswith('providers'), path.name)
+
+    def test_defaults_and_detection(self):
+        for provider, module in REGISTRO.items():
+            self.assertEqual(moneda_predeterminada(provider), 'CLP' if provider in
+                             ['Fujicorp', 'Coimco', 'Demco Ltda.', 'Facciatech'] else 'USD')
+            if module.PATRON:
+                self.assertEqual(detectar_proveedor_lote([provider + ' 2026.xlsx']), (provider, 'detectado'))
+        self.assertEqual(detectar_proveedor_lote(['Ingram.xlsx', 'Intcomex.xlsx'])[1], 'conflicto')
+
+    def test_selected_sheets(self):
+        for provider in ['Ingram', 'SolutionBox']:
+            headers = PLANTILLAS[provider]
+            row = ['001', 12, 3] + (['Producto'] if len(headers) == 4 else [])
+            for selected, expected in [(['MATERIAL'], 1), (['MATERIAL', 'OTRA'], 2), ([], 0)]:
+                summary, result = procesar_archivos([excel(headers, [row], second_sheet=True)],
+                    FECHA, provider, hojas_por_archivo={0: selected})
+                self.assertEqual(len(result), expected)
+                self.assertEqual(summary.iloc[0]['Estado'], 'Procesado' if selected else 'Error')
+
+    def test_fujicorp_offer_isolation(self):
+        for provider, expected in [('Fujicorp', 8), ('Coimco', 12)]:
+            headers = [*PLANTILLAS[provider], 'OFERTA', 'MARCA', 'PART NUMBER']
+            _, result = procesar_archivos([excel(headers, [['A', 12, '10+', 'Producto', 8, 'Marca', 'PN-A']])], FECHA, provider)
+            self.assertEqual(result.iloc[0].currency_unaware_cost_neto, expected)
+            self.assertEqual(result.iloc[0].brand, 'Marca')
+            self.assertEqual(result.iloc[0].mpn, 'PN-A')
+
+    def test_demco_stock_and_price(self):
+        headers = [*PLANTILLAS['Demco Ltda.'], 'PVP', 'Número de Parte', 'Marca']
+        rows = [['A', 12, 5, 'Producto', 100, 'PN-A', 'Marca'], ['B', 12, '30 DIAS', 'Producto', 100, 'PN-B', 'Marca']]
+        _, result = procesar_archivos([excel(headers, rows)], FECHA, 'Demco Ltda.')
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result.iloc[0].currency_unaware_cost_neto, 12)
+        self.assertEqual(result.iloc[0].mpn, 'PN-A')
+
+    def test_nexsys_requires_explicit_permission(self):
+        for permission in [False, True]:
+            summary, result = procesar_archivos([excel(['PART NUMBER', 'PRECIO', 'STOCK', 'DESCRIPCION'],
+                [['PN-A', 12, 2, 'Producto']])], FECHA, 'Nexsys', permitir_pn=permission)
+            self.assertEqual(len(result), int(permission))
+            self.assertEqual(summary.iloc[0]['Estado'], 'Procesado' if permission else 'Error')
+
+    def test_kepler_preventa_and_explicit_fields(self):
+        headers = [*PLANTILLAS['Kepler'], 'PN', 'MARCA']
+        summary, result = procesar_archivos([excel(headers, [['A-\nB', 12, 3, 'Una\n descripción', 'PN-A', 'Marca']],
+            name='PREVENTA TT.xlsx')], FECHA, 'Kepler')
+        self.assertEqual(result.iloc[0].provider_code, 'A-B')
+        self.assertEqual(result.iloc[0]['name'], 'Una descripción')
+        self.assertEqual(result.iloc[0].mpn, 'PN-A')
+        self.assertIn('Preventa', summary.iloc[0]['Detalle'])
+
+    def test_errors_do_not_block_other_files(self):
+        bad = BytesIO(b'not excel'); bad.name = 'bad.xlsx'
+        good = excel(PLANTILLAS['Intcomex'], [['A', 1, 2]])
+        summary, result = procesar_archivos([bad, good], FECHA)
+        self.assertEqual(list(summary.Estado), ['Error', 'Procesado'])
+        self.assertEqual(len(result), 1)
+
+    def test_exports_and_conflicts(self):
+        _, result = procesar_archivos([excel(PLANTILLAS['Intcomex'], [['A', 12.75, 3], ['A', 12.75, 3], ['B', 5, 1], ['B', 6, 1]])], FECHA)
+        clean, conflicts, duplicates = consolidar(result)
+        self.assertEqual((len(clean), len(conflicts), duplicates), (1, 2, 1))
+        data = clean.drop(columns='Archivo de origen')
+        text = generar_tsv(data)
+        self.assertNotIn('provider_code', text)
+        self.assertIn('12,75', text)
+        self.assertNotIn('3.0', text)
+        html = generar_html_copia_excel(data)
+        self.assertIn('x:str="&#x27;30-09-2026  12:00"', html)
+        self.assertNotIn("''30", html)
+        book = openpyxl.load_workbook(generar_excel(data))
+        self.assertEqual(book.active['D2'].value, '30-09-2026  12:00')
+        self.assertTrue(book.active['D2'].quotePrefix)
+        book.close()
+
+    def test_unconfigured_providers_are_not_guessed(self):
+        for provider in ['Facciatech', 'Gtc ribbon', 'Otro']:
+            summary, result = procesar_archivos([excel(PLANTILLAS['Intcomex'], [['A', 1, 2]])], FECHA, provider)
+            self.assertEqual(summary.iloc[0]['Estado'], 'Error')
+            self.assertTrue(result.empty)
+
+
+if __name__ == '__main__':
+    unittest.main()
