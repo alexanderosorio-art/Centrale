@@ -484,6 +484,73 @@ def procesar_kepler(df, fecha, nombre, moneda_valor):
     return resultado
 
 
+def leer_intcomex_xlsx(archivo):
+    """Limita la lectura a celdas con datos, no al formato de filas vacías."""
+    import posixpath
+    from zipfile import ZipFile
+    from xml.etree import ElementTree as ET
+    import openpyxl
+    from openpyxl.utils.cell import coordinate_from_string, column_index_from_string
+
+    ns = {'s': 'http://schemas.openxmlformats.org/spreadsheetml/2006/main'}
+    archivo.seek(0)
+    with ZipFile(archivo) as paquete:
+        libro = ET.fromstring(paquete.read('xl/workbook.xml'))
+        primera = libro.find('s:sheets/s:sheet', ns)
+        relacion = primera.attrib['{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id']
+        relaciones = ET.fromstring(paquete.read('xl/_rels/workbook.xml.rels'))
+        destino = next(r.attrib['Target'] for r in relaciones if r.attrib['Id'] == relacion)
+        ruta = destino.lstrip('/') if destino.startswith('/') else posixpath.normpath(posixpath.join('xl', destino))
+        ultima_fila, ultima_columna = 0, 0
+        with paquete.open(ruta) as contenido:
+            for _, elemento in ET.iterparse(contenido, events=('end',)):
+                if elemento.tag == '{' + ns['s'] + '}c':
+                    if any(elemento.find('s:' + tipo, ns) is not None for tipo in ('v', 'is', 'f')):
+                        columna, fila = coordinate_from_string(elemento.attrib['r'])
+                        ultima_fila = max(ultima_fila, fila)
+                        ultima_columna = max(ultima_columna, column_index_from_string(columna))
+                    elemento.clear()
+                elif elemento.tag == '{' + ns['s'] + '}row':
+                    elemento.clear()
+    if not ultima_fila:
+        raise ValueError('La primera hoja de Intcomex no contiene datos.')
+    archivo.seek(0)
+    libro = openpyxl.load_workbook(archivo, read_only=True, data_only=True)
+    try:
+        bruto = pd.DataFrame(libro.worksheets[0].iter_rows(
+            max_row=ultima_fila, max_col=ultima_columna, values_only=True))
+    finally:
+        libro.close()
+        archivo.seek(0)
+    columnas_asus = {'SKU INTCOMEX', 'NUMERO DE PARTE', 'PRECIO USD (S/IVA)',
+                     'STOCK REFERENCIAL', 'DETALLE'}
+    candidatos = [i for i, fila in bruto.iterrows()
+                  if columnas_asus.issubset({normalizar_texto_columna(v) for v in fila})]
+    if candidatos:
+        encabezado = candidatos[0]
+    else:
+        puntajes = bruto.apply(lambda fila: sum(
+            palabra in ' '.join(fila.fillna('').astype(str)).lower()
+            for palabra in palabras_clave_encabezado()), axis=1)
+        encabezado = puntajes.idxmax()
+    datos = bruto.iloc[encabezado + 1:].dropna(how='all').copy()
+    datos.columns = bruto.iloc[encabezado]
+    return datos
+
+
+def procesar_intcomex_asus(df, expiry_date):
+    columnas = {normalizar_texto_columna(c): c for c in df.columns}
+    base = pd.DataFrame({
+        'SKU': df[columnas['SKU INTCOMEX']],
+        'venta neto usd': df[columnas['PRECIO USD (S/IVA)']],
+        'stock actual': pd.to_numeric(df[columnas['STOCK REFERENCIAL']], errors='coerce'),
+    }, index=df.index)
+    resultado = procesar_intcomex(base, expiry_date)
+    for destino, origen in [('mpn', 'NUMERO DE PARTE'), ('name', 'DETALLE')]:
+        resultado[destino] = df.loc[resultado.index, columnas[origen]].fillna('').astype(str).str.strip()
+    return resultado
+
+
 def procesar_intcomex_wd(df, expiry_date):
     """Lee la plantilla Intcomex de precios especiales WD para CENTRALE."""
     columnas = {
@@ -831,7 +898,9 @@ def procesar_archivos(archivos, fecha, proveedor="Intcomex", moneda_valor=None, 
                     encoding=encoding
                 )
             else:
-                if proveedor == 'Kepler':
+                if proveedor == 'Intcomex' and archivo.name.lower().endswith('.xlsx'):
+                    df = leer_intcomex_xlsx(archivo)
+                elif proveedor == 'Kepler':
                     bruto = pd.read_excel(archivo, header=None)
                     candidatos = [i for i, row in bruto.iterrows() if set(row.map(normalizar_columna)) & {'SKU', 'SKU/LINK', 'CODIGO'} and set(row.map(normalizar_columna)) & {'DOLAR', 'VALOR USD', 'U$ NETO', 'VALOR'}]
                     if not candidatos:
@@ -839,11 +908,17 @@ def procesar_archivos(archivos, fecha, proveedor="Intcomex", moneda_valor=None, 
                     encabezado = candidatos[0]
                 else:
                     encabezado = detectar_encabezado(archivo)
-                archivo.seek(0)
-                df = pd.read_excel(archivo, header=encabezado)
+                if not (proveedor == 'Intcomex' and archivo.name.lower().endswith('.xlsx')):
+                    archivo.seek(0)
+                    df = pd.read_excel(archivo, header=encabezado)
             fila['Leídos'] = len(df)
             if proveedor == 'Kepler':
                 resultado = procesar_kepler(df, fecha, archivo.name, moneda_valor)
+            elif (proveedor == 'Intcomex' and
+                  {'SKU INTCOMEX', 'NUMERO DE PARTE', 'PRECIO USD (S/IVA)',
+                   'STOCK REFERENCIAL', 'DETALLE'}.issubset(
+                       {normalizar_texto_columna(c) for c in df.columns})):
+                resultado = procesar_intcomex_asus(df, fecha)
             elif (
                 proveedor == 'Intcomex'
                 and {'PART NUMBER (MPN)', 'PRECIO ESPECIAL NETO UNIT. CENTRALE'}
