@@ -770,6 +770,30 @@ def leer_nuevo_proveedor(archivo, proveedor, fecha, moneda, permitir_pn, hojas_s
     return pd.concat(salida, ignore_index=True), leidos, detalle
 
 
+def detectar_proveedores_archivo(nombre):
+    # Comparar palabras completas; fechas y separadores pueden rodear el nombre.
+    nombre = normalizar_columna(str(nombre).replace('\\', '/').rsplit('/', 1)[-1].rsplit('.', 1)[0])
+    patrones = {
+        'Intcomex': r'INTCOMEX', 'Ingram': r'INGRAM', 'Kepler': r'KEPLER',
+        'Tecnoglobal': r'TECNO[\W_]*GLOBAL', 'Coimco': r'COIMCO',
+        'Fujicorp': r'FUJICORP', 'Nexsys': r'NEXSYS',
+        'SolutionBox': r'SOLUTION[\W_]*BOX', 'Demco Ltda.': r'DEMCO',
+        'Facciatech': r'FACCIATECH', 'Gtc ribbon': r'GTC[\W_]*RIBBON',
+    }
+    return [proveedor for proveedor, patron in patrones.items()
+            if re.search(r'(?<![A-Z])' + patron + r'(?![A-Z])', nombre)]
+
+
+def detectar_proveedor_lote(nombres):
+    coincidencias = [detectar_proveedores_archivo(nombre) for nombre in nombres]
+    proveedores = {p for lista in coincidencias for p in lista}
+    if any(len(lista) > 1 for lista in coincidencias) or len(proveedores) > 1:
+        return 'Seleccionar...', 'conflicto'
+    if coincidencias and all(len(lista) == 1 for lista in coincidencias):
+        return next(iter(proveedores)), 'detectado'
+    return 'Seleccionar...', 'sin_coincidencia'
+
+
 def moneda_predeterminada(proveedor):
     return 'CLP' if proveedor in {'Fujicorp', 'Coimco', 'Demco Ltda.', 'Facciatech'} else 'USD'
 
@@ -873,21 +897,48 @@ PROVEEDORES_CONFIGURADOS = ['Intcomex', 'Kepler', 'Tecnoglobal', 'Nexsys', 'Ingr
 
 st.title('Price List Normalizer')
 st.write('Generador de listas de precios para carga al CRM')
+archivos = st.file_uploader('Subir listas de precios del mismo proveedor',
+                           type=['xlsx', 'xls', 'csv', 'pdf'], accept_multiple_files=True)
+import_hash_archivos = tuple(hashlib.sha256(a.getvalue()).hexdigest() for a in archivos)
+firma_deteccion = tuple((a.name, huella) for a, huella in zip(archivos, import_hash_archivos))
+proveedor_detectado, estado_deteccion = detectar_proveedor_lote([a.name for a in archivos])
+if st.session_state.get('archivos_deteccion') != firma_deteccion:
+    st.session_state['archivos_deteccion'] = firma_deteccion
+    st.session_state['proveedor_lista'] = proveedor_detectado
+    st.session_state['confirmar_proveedor_archivos'] = False
+    if estado_deteccion == 'detectado':
+        st.session_state[f'moneda_lista_{proveedor_detectado}'] = moneda_predeterminada(proveedor_detectado)
 proveedor = st.selectbox(
     'Proveedor',
     ['Seleccionar...', 'Ingram', 'Intcomex', 'Tecnoglobal', 'Coimco', 'Fujicorp', 'Kepler', 'Nexsys', 'SolutionBox', 'Demco Ltda.', *PROVEEDORES_SIN_REGLAS],
+    key='proveedor_lista',
+    on_change=lambda: st.session_state.update(confirmar_proveedor_archivos=False),
 )
+proveedor_confirmado = True
+if archivos:
+    if estado_deteccion == 'detectado':
+        if proveedor == proveedor_detectado:
+            st.caption(f'Mayorista detectado por el nombre del archivo: {proveedor_detectado}. Puedes corregirlo en el selector.')
+        else:
+            st.caption(f'Nombre del archivo: {proveedor_detectado}. Se usará tu selección manual: {proveedor}.')
+    elif estado_deteccion == 'conflicto':
+        st.warning('Los nombres contienen varios mayoristas o corresponden a proveedores distintos. Retira los archivos de otro proveedor o corrige y confirma la selección.')
+        proveedor_confirmado = st.checkbox(
+            'Confirmo que todos los archivos pertenecen al proveedor seleccionado',
+            key='confirmar_proveedor_archivos',
+        )
+    else:
+        st.info('No se pudo identificar un mismo mayorista en todos los nombres. Selecciona el proveedor manualmente.')
 if proveedor in PROVEEDORES_SIN_REGLAS:
     st.info(
-        f'{proveedor}: la opción está disponible, pero aún no tiene reglas de lectura configuradas. '
-        'Para evitar inventar o asignar datos incorrectos, necesitamos revisar una lista de ejemplo.'
+        f'{proveedor}: esta opción ya está disponible, pero todavía no tiene reglas '
+        'de lectura configuradas. Para evitar inventar o asignar mal datos, necesitamos '
+        'revisar una lista de ejemplo antes de habilitar su procesamiento.'
     )
-archivos = st.file_uploader('Subir listas de precios del mismo proveedor',
-                           type=['xlsx', 'xls', 'csv', 'pdf'], accept_multiple_files=True)
 st.caption('Puedes seleccionar varios archivos. PDF: se recorren todas las páginas y se extraen tablas con texto seleccionable; los PDF escaneados requieren OCR. Tecnoglobal, Nexsys, Ingram, Coimco y Fujicorp: se revisan las hojas elegidas. Intcomex y Kepler: primera hoja. '
            'La consolidación CRM está disponible para los proveedores con reglas configuradas.')
 
-import_hash_archivos = tuple(hashlib.sha256(a.getvalue()).hexdigest() for a in archivos)
+
 hojas_por_archivo = {}
 seleccion_hojas_incompleta = False
 if proveedor == 'Ingram' and archivos:
@@ -943,9 +994,9 @@ if proveedor == 'SolutionBox':
             seleccion_hojas_incompleta = True
 if proveedor == 'Demco Ltda.':
     st.caption('Demco: se revisan todas las hojas. Se usa Código Interno como código de proveedor, Número de Parte como PN y Precio Neto como costo.')
+st.session_state.setdefault(f'moneda_lista_{proveedor}', moneda_predeterminada(proveedor))
 moneda_valor = st.selectbox(
     'Moneda de la lista', ['USD', 'CLP'],
-    index=1 if moneda_predeterminada(proveedor) == 'CLP' else 0,
     key=f'moneda_lista_{proveedor}',
     help='Se aplica a todos los productos del lote, incluso si el encabezado indica otra moneda. No convierte los importes.',
 )
@@ -956,7 +1007,7 @@ fecha = st.date_input('Fecha de vigencia', value=calcular_expiry_date())
 
 # Evitar que se descarguen resultados de archivos, hojas, proveedor o fecha anteriores.
 firma = (
-    proveedor, moneda_valor, permitir_pn, str(fecha),
+    proveedor, moneda_valor, permitir_pn, str(fecha), proveedor_confirmado,
     tuple((a.name, import_hash_archivos[i]) for i, a in enumerate(archivos)),
     tuple((i, tuple(hojas)) for i, hojas in sorted(hojas_por_archivo.items())),
 )
@@ -972,6 +1023,8 @@ if st.button('Procesar listas'):
         st.warning('Primero debes subir una o más listas de precios.')
     elif proveedor == 'Seleccionar...':
         st.warning('Primero debes seleccionar un proveedor.')
+    elif not proveedor_confirmado:
+        st.warning('Revisa los archivos y confirma que pertenecen al proveedor seleccionado antes de procesar.')
     elif proveedor not in PROVEEDORES_CONFIGURADOS:
         st.warning(f'{proveedor} todavía no tiene reglas configuradas. No se procesó ningún archivo.')
     elif seleccion_hojas_incompleta:
