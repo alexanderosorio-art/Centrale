@@ -99,12 +99,13 @@ class ProviderTests(unittest.TestCase):
         self.assertEqual(result.iloc[0].currency_unaware_cost_neto, 12)
         self.assertEqual(result.iloc[0].mpn, 'PN-A')
 
-    def test_nexsys_requires_explicit_permission(self):
+    def test_nexsys_pn_equivalence_already_authorized(self):
         for permission in [False, True]:
             summary, result = procesar_archivos([excel(['PART NUMBER', 'PRECIO', 'STOCK', 'DESCRIPCION'],
                 [['PN-A', 12, 2, 'Producto']])], FECHA, 'Nexsys', permitir_pn=permission)
-            self.assertEqual(len(result), int(permission))
-            self.assertEqual(summary.iloc[0]['Estado'], 'Procesado' if permission else 'Error')
+            self.assertEqual(len(result), 1)
+            self.assertEqual(result.iloc[0].provider_code, result.iloc[0].mpn)
+            self.assertEqual(summary.iloc[0]['Estado'], 'Procesado')
 
     def test_kepler_preventa_and_explicit_fields(self):
         headers = [*PLANTILLAS['Kepler'], 'PN', 'MARCA']

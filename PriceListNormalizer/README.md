@@ -13,7 +13,7 @@ providers/             Un módulo por mayorista
   tecnoglobal.py       Reglas Tecnoglobal
   coimco.py            Reglas Coimco
   fujicorp.py          Reglas Fujicorp y selección de ofertas
-  nexsys.py            Reglas Nexsys y confirmación de PN como código
+  nexsys.py            Reglas Nexsys y catálogo Hardware solo USD
   solutionbox.py       Plantillas SolutionBox y disponibilidad
   demco.py             Código Interno, Precio Neto y stock numérico
   facciatech.py         Pendiente de configurar
@@ -48,6 +48,25 @@ tests/                 Pruebas sintéticas sin información comercial privada
 Las fechas, el portapapeles y los filtros comunes se mantienen en un solo lugar.
 La moneda elegida por el usuario se aplica en `processing.py` sin convertir precios.
 La interfaz conserva sus avisos y controles particulares de hojas y confirmaciones.
+
+### Catálogo Hardware Nexsys
+
+Las hojas autorizadas están en `HOJAS_CATALOGO`, comparadas sin acentos ni espacios
+sobrantes. EPSON se omite completa por ser CLP. En las demás hojas se excluye CLP
+en la columna Moneda, el valor del precio o su formato Excel, incluso cuando el
+encabezado diga USD. No se considera `$` ni el código de idioma como prueba de moneda.
+Si existe columna Moneda y está vacía o no se reconoce, la fila se excluye.
+Para las hojas aprobadas sin moneda explícita se usa USD. Este catálogo bloquea
+la reasignación manual de moneda; las listas independientes mantienen su selector.
+
+HP Poly identifica la promoción como la única columna entre Inventario físico y
+Precio de venta US$, sin depender de su título o fecha. Si cambia la disposición,
+se informa un error para revisar la plantilla. Lenovo usa el precio promocional
+solo con unidades promocionales positivas, limitado al menor de stock y unidades
+promocionales; de lo contrario conserva el precio normal. Jabra usa la tarifa
+Reseller Premium autorizada por el usuario. No se aplican precios HP Connect,
+descuentos por volumen ni cantidades en tránsito. PN y código son equivalentes
+para Nexsys sin pedir otra confirmación. No se deduce la marca del nombre de hoja.
 
 ## Ejecutar y verificar
 

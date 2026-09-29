@@ -7,6 +7,7 @@ from file_readers import obtener_nombres_hojas
 from exports import generar_excel, boton_copiar_excel
 from processing import detectar_proveedor_lote, moneda_predeterminada, procesar_archivos
 from providers import PROVEEDORES_CONFIGURADOS, PROVEEDORES_SIN_REGLAS, OPCIONES_PROVEEDORES
+from providers.nexsys import es_catalogo
 
 st.title('Price List Normalizer')
 st.write('Generador de listas de precios para carga al CRM')
@@ -100,17 +101,29 @@ if proveedor == 'SolutionBox':
             seleccion_hojas_incompleta = True
 if proveedor == 'Demco Ltda.':
     st.caption('Demco: se revisan todas las hojas. Se usa Código Interno como código de proveedor, Número de Parte como PN y Precio Neto como costo.')
+catalogo_nexsys = False
+if proveedor == 'Nexsys':
+    for archivo in archivos:
+        if archivo.name.lower().endswith('.xlsx'):
+            try:
+                catalogo_nexsys = catalogo_nexsys or es_catalogo(obtener_nombres_hojas(archivo))
+            except Exception:
+                pass  # El procesamiento reportará el error del archivo.
+    if catalogo_nexsys:
+        st.info('Catálogo Hardware Nexsys: solo hojas autorizadas y productos en USD. Se excluyen EPSON y filas CLP; no se convierten precios. HP Poly incluye promociones y Lenovo limita el stock promocional a sus unidades disponibles. Jabra usa el precio certificado autorizado.')
+        st.session_state[f'moneda_lista_{proveedor}'] = 'USD'
 st.session_state.setdefault(f'moneda_lista_{proveedor}', moneda_predeterminada(proveedor))
 moneda_valor = st.selectbox(
     'Moneda de la lista', ['USD', 'CLP'],
     key=f'moneda_lista_{proveedor}',
+    disabled=catalogo_nexsys,
     help='Se aplica a todos los productos del lote, incluso si el encabezado indica otra moneda. No convierte los importes.',
 )
 if proveedor == 'Kepler':
     st.caption('Kepler: se usa el precio normal de la lista.')
     if any('PREVENTA' in normalizar_columna(a.name) for a in archivos):
         st.warning('Lista de preventa: se copiarán las cantidades indicadas en el archivo. No representan stock inmediato y no se asignará un plazo de entrega si no está informado.')
-permitir_pn = st.checkbox('Confirmo que para Nexsys el CRM acepta el número de parte como código de proveedor') if proveedor == 'Nexsys' else False
+permitir_pn = proveedor == 'Nexsys'  # Equivalencia confirmada por el usuario.
 fecha = st.date_input('Fecha de vigencia', value=calcular_expiry_date())
 
 # Evitar que se descarguen resultados de archivos, hojas, proveedor o fecha anteriores.
