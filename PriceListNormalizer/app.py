@@ -435,8 +435,6 @@ def obtener_nombres_hojas(archivo):
 def procesar_kepler(df, fecha, nombre, moneda_valor):
     df = df.copy()
     df.columns = [normalizar_columna(c) for c in df.columns]
-    if 'PREVENTA' in normalizar_columna(nombre):
-        raise ValueError('Preventa: se excluye del stock inmediato. Procesar por separado.')
     def buscar(opciones):
         return next((c for c in opciones if c in df.columns), None)
     codigo = buscar(['SKU', 'SKU/LINK', 'CODIGO'])
@@ -453,7 +451,8 @@ def procesar_kepler(df, fecha, nombre, moneda_valor):
         raise ValueError('Confirma la moneda de la columna VALOR (Threadripper) en el selector antes de procesar.')
     def numero(v):
         return limpiar_numero(v)
-    fuente = pd.DataFrame({'SKU': df[codigo], 'venta neto usd': df[precio].map(numero),
+    codigos = df[codigo].fillna('').astype(str).str.replace(r'[ \t]*[\r\n]+[ \t]*', '', regex=True).str.strip()
+    fuente = pd.DataFrame({'SKU': codigos, 'venta neto usd': df[precio].map(numero),
                            'stock actual': df[stock].map(numero)}, index=df.index)
     if 'LLEGADA' in df.columns:
         fuente = fuente.loc[df['LLEGADA'].astype(str).map(normalizar_columna).eq('EN STOCK')]
@@ -480,6 +479,8 @@ def procesar_kepler(df, fecha, nombre, moneda_valor):
         )
         if columna:
             valores = df.loc[resultado.index, columna].fillna('').astype(str).str.strip()
+            if destino == 'name':
+                valores = valores.str.replace(r'\s*[\r\n]+\s*', ' ', regex=True)
             resultado[destino] = valores.replace({'nan': '', 'None': ''})
     return resultado
 
@@ -952,6 +953,8 @@ def procesar_archivos(archivos, fecha, proveedor="Intcomex", moneda_valor=None, 
             fila['Descartados'] = len(df) - len(resultado)
             fila['Estado'] = 'Procesado'
             fila['Detalle'] = 'Se excluyen códigos vacíos, precios inválidos y stock no positivo.'
+            if proveedor == 'Kepler' and 'PREVENTA' in normalizar_columna(archivo.name):
+                fila['Detalle'] += ' Preventa: las cantidades provienen del archivo; no indican disponibilidad inmediata. No se asignó plazo de entrega.'
             resultado = resultado.copy()
             resultado['Archivo de origen'] = nombre
             resultados.append(resultado)
@@ -1089,7 +1092,9 @@ moneda_valor = st.selectbox(
     help='Se aplica a todos los productos del lote, incluso si el encabezado indica otra moneda. No convierte los importes.',
 )
 if proveedor == 'Kepler':
-    st.caption('Kepler: se usa el precio normal; la preventa se excluye.')
+    st.caption('Kepler: se usa el precio normal de la lista.')
+    if any('PREVENTA' in normalizar_columna(a.name) for a in archivos):
+        st.warning('Lista de preventa: se copiarán las cantidades indicadas en el archivo. No representan stock inmediato y no se asignará un plazo de entrega si no está informado.')
 permitir_pn = st.checkbox('Confirmo que para Nexsys el CRM acepta el número de parte como código de proveedor') if proveedor == 'Nexsys' else False
 fecha = st.date_input('Fecha de vigencia', value=calcular_expiry_date())
 
