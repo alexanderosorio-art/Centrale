@@ -19,6 +19,7 @@ class ReglasTabla:
     part_numbers: tuple[str, ...] = PART_NUMBERS
     lectura_acotada: bool = False
     preferir_oferta: bool = False
+    ofertas: tuple[str, ...] = ('OFERTA', 'OFERTA X VOLUMEN', 'PRECIO OFERTA')
     codigo_desde_pn: bool = False
     stock_estricto: bool = False
     descripcion_exacta: str | None = None
@@ -117,7 +118,7 @@ def leer_tablas(archivo, fecha, moneda, permitir_pn=False, hojas_seleccionadas=N
             if not cod and reglas.codigo_desde_pn:
                 cod = pn
             stk = next((c for c in stocks if c in cols), None)
-            ofertas = [c for c in ['OFERTA', 'OFERTA X VOLUMEN', 'PRECIO OFERTA'] if c in cols]
+            ofertas = [c for c in reglas.ofertas if c in cols]
             precio_neto = next((c for c in precios if c in cols), None)
             descripcion = next((c for c in cols if c in ['DESCRIPTION', 'MKT NAME', 'MODELO']
                                 or c.startswith('DESCRIPCI')), None)
