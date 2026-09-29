@@ -484,7 +484,7 @@ def procesar_kepler(df, fecha, nombre, moneda_valor):
     return resultado
 
 
-def leer_intcomex_xlsx(archivo):
+def leer_hoja_xlsx_con_datos(archivo, nombre_hoja=None):
     """Limita la lectura a celdas con datos, no al formato de filas vacías."""
     import posixpath
     from zipfile import ZipFile
@@ -496,7 +496,12 @@ def leer_intcomex_xlsx(archivo):
     archivo.seek(0)
     with ZipFile(archivo) as paquete:
         libro = ET.fromstring(paquete.read('xl/workbook.xml'))
-        primera = libro.find('s:sheets/s:sheet', ns)
+        hojas = libro.findall('s:sheets/s:sheet', ns)
+        primera = hojas[0] if nombre_hoja is None else next(
+            (hoja for hoja in hojas if hoja.attrib['name'] == nombre_hoja), None)
+        if primera is None:
+            raise ValueError(f'No se encontró la hoja {nombre_hoja}.')
+        nombre_hoja = primera.attrib['name']
         relacion = primera.attrib['{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id']
         relaciones = ET.fromstring(paquete.read('xl/_rels/workbook.xml.rels'))
         destino = next(r.attrib['Target'] for r in relaciones if r.attrib['Id'] == relacion)
@@ -513,15 +518,23 @@ def leer_intcomex_xlsx(archivo):
                 elif elemento.tag == '{' + ns['s'] + '}row':
                     elemento.clear()
     if not ultima_fila:
-        raise ValueError('La primera hoja de Intcomex no contiene datos.')
+        archivo.seek(0)
+        return pd.DataFrame()
     archivo.seek(0)
     libro = openpyxl.load_workbook(archivo, read_only=True, data_only=True)
     try:
-        bruto = pd.DataFrame(libro.worksheets[0].iter_rows(
-            max_row=ultima_fila, max_col=ultima_columna, values_only=True))
+        bruto = pd.DataFrame(libro[nombre_hoja].iter_rows(
+            max_row=ultima_fila, max_col=ultima_columna, values_only=True), dtype=object)
     finally:
         libro.close()
         archivo.seek(0)
+    return bruto
+
+
+def leer_intcomex_xlsx(archivo):
+    bruto = leer_hoja_xlsx_con_datos(archivo)
+    if bruto.empty:
+        raise ValueError('La primera hoja de Intcomex no contiene datos.')
     columnas_asus = {'SKU INTCOMEX', 'NUMERO DE PARTE', 'PRECIO USD (S/IVA)',
                      'STOCK REFERENCIAL', 'DETALLE'}
     candidatos = [i for i, fila in bruto.iterrows()
@@ -757,6 +770,11 @@ def leer_nuevo_proveedor(archivo, proveedor, fecha, moneda, permitir_pn, hojas_s
             )
     elif archivo.name.lower().endswith('.csv'):
         hojas = {'CSV': pd.read_csv(archivo, header=None)}
+    elif proveedor == 'Ingram' and archivo.name.lower().endswith('.xlsx'):
+        if hojas_seleccionadas == []:
+            raise ValueError('Selecciona al menos una hoja de Ingram para procesar.')
+        nombres = hojas_seleccionadas if hojas_seleccionadas is not None else obtener_nombres_hojas(archivo)
+        hojas = {nombre: leer_hoja_xlsx_con_datos(archivo, nombre) for nombre in nombres}
     else:
         hojas = pd.read_excel(
             archivo, sheet_name=hojas_seleccionadas or None, header=None
@@ -1018,7 +1036,7 @@ hojas_por_archivo = {}
 seleccion_hojas_incompleta = False
 if proveedor == 'Ingram' and archivos:
     st.subheader('Hojas del Excel')
-    st.caption('La hoja “LISTA DE PRECIOS” se incluye siempre cuando está presente. Puedes elegir varias hojas adicionales; las hojas sin tabla compatible se informarán en el resumen.')
+    st.caption('Elige una o varias hojas de cada archivo. No hay nombres ni hojas obligatorias; solo se procesarán las que selecciones.')
     for indice_archivo, archivo in enumerate(archivos):
         if not archivo.name.lower().endswith(('.xlsx', '.xls')):
             continue
@@ -1028,26 +1046,21 @@ if proveedor == 'Ingram' and archivos:
             st.warning(f'No se pudieron leer las hojas de {archivo.name}: {error}')
             seleccion_hojas_incompleta = True
             continue
-        obligatorias = [nombre for nombre in nombres_hojas if normalizar_texto_columna(nombre) in {'LISTA DE PRECIOS', 'LISTAS DE PRECIOS'}]
         huella = hashlib.sha256(f'{indice_archivo}:{archivo.name}:{import_hash_archivos[indice_archivo]}'.encode('utf-8')).hexdigest()[:16]
-        if obligatorias:
-            opcionales = [nombre for nombre in nombres_hojas if nombre not in obligatorias]
-            elegidas = st.multiselect(f'Otras hojas opcionales — {archivo.name}', options=opcionales, default=[], key=f'hojas_ingram_{huella}') if opcionales else []
-            hojas_por_archivo[indice_archivo] = [*obligatorias, *elegidas]
-            st.success('Hoja obligatoria incluida: ' + ', '.join(obligatorias))
-            with st.expander(f'Vista previa de {obligatorias[0]}'):
+        elegidas = st.multiselect(
+            f'Hojas a procesar — {archivo.name}', options=nombres_hojas,
+            default=[], key=f'hojas_ingram_libres_{huella}',
+        )
+        hojas_por_archivo[indice_archivo] = list(elegidas)
+        if not elegidas:
+            st.warning(f'Selecciona al menos una hoja de {archivo.name} para procesar.')
+            seleccion_hojas_incompleta = True
+        else:
+            with st.expander(f'Vista previa de {elegidas[0]}'):
                 archivo.seek(0)
-                vista_previa = pd.read_excel(archivo, sheet_name=obligatorias[0], header=None, nrows=18).fillna('').astype(str)
+                vista_previa = pd.read_excel(archivo, sheet_name=elegidas[0], header=None, nrows=18).fillna('').astype(str)
                 st.dataframe(vista_previa, hide_index=True)
                 archivo.seek(0)
-        elif len(nombres_hojas) > 1:
-            elegidas = st.multiselect(f'Hojas a procesar — {archivo.name}', options=nombres_hojas, default=[], key=f'hojas_ingram_{huella}')
-            hojas_por_archivo[indice_archivo] = list(elegidas)
-            if not elegidas:
-                st.warning(f'No se encontró “LISTA DE PRECIOS” en {archivo.name}. Selecciona al menos una hoja para procesar.')
-                seleccion_hojas_incompleta = True
-        elif nombres_hojas:
-            hojas_por_archivo[indice_archivo] = nombres_hojas
 if proveedor == 'SolutionBox':
     st.caption('SolutionBox: el PN se usa como código de proveedor y mpn. La marca se copia solo de una columna MARCA. Se excluyen productos por encargo o sin cantidad disponible.')
     for indice_archivo, archivo in enumerate(archivos):
