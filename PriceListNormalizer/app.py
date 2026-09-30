@@ -101,6 +101,8 @@ if proveedor == 'SolutionBox':
             seleccion_hojas_incompleta = True
 if proveedor == 'Demco Ltda.':
     st.caption('Demco: se revisan todas las hojas. Se usa Código Interno como código de proveedor, Número de Parte como PN y Precio Neto como costo.')
+if proveedor == 'Facciatech':
+    st.caption('Facciatech: solo se procesa la hoja Resumen. Se usa Precio Neto detalle, ID como código y Part Number como PN. Moneda predeterminada: CLP.')
 catalogo_nexsys = False
 if proveedor == 'Nexsys':
     for archivo in archivos:

@@ -141,7 +141,7 @@ class ProviderTests(unittest.TestCase):
         book.close()
 
     def test_unconfigured_providers_are_not_guessed(self):
-        for provider in ['Facciatech', 'Gtc ribbon', 'Otro', 'Gerona']:
+        for provider in ['Gtc ribbon', 'Otro', 'Gerona']:
             summary, result = procesar_archivos([excel(PLANTILLAS['Intcomex'], [['A', 1, 2]])], FECHA, provider)
             self.assertEqual(summary.iloc[0]['Estado'], 'Error')
             self.assertTrue(result.empty)
