@@ -68,7 +68,7 @@ class ProviderTests(unittest.TestCase):
     def test_defaults_and_detection(self):
         for provider, module in REGISTRO.items():
             self.assertEqual(moneda_predeterminada(provider), 'CLP' if provider in
-                             ['Fujicorp', 'Coimco', 'Demco Ltda.', 'Facciatech'] else 'USD')
+                             ['Fujicorp', 'Coimco', 'Demco Ltda.', 'Facciatech', 'Gerona'] else 'USD')
             if module.PATRON:
                 self.assertEqual(detectar_proveedor_lote([provider + ' 2026.xlsx']), (provider, 'detectado'))
         self.assertEqual(detectar_proveedor_lote(['Ingram.xlsx', 'Intcomex.xlsx'])[1], 'conflicto')
@@ -141,7 +141,7 @@ class ProviderTests(unittest.TestCase):
         book.close()
 
     def test_unconfigured_providers_are_not_guessed(self):
-        for provider in ['Facciatech', 'Gtc ribbon', 'Otro']:
+        for provider in ['Facciatech', 'Gtc ribbon', 'Otro', 'Gerona']:
             summary, result = procesar_archivos([excel(PLANTILLAS['Intcomex'], [['A', 1, 2]])], FECHA, provider)
             self.assertEqual(summary.iloc[0]['Estado'], 'Error')
             self.assertTrue(result.empty)

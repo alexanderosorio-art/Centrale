@@ -6,7 +6,7 @@ from common import calcular_expiry_date, formatear_expiry_date, normalizar_colum
 from file_readers import obtener_nombres_hojas
 from exports import generar_excel, boton_copiar_excel
 from processing import detectar_proveedor_lote, moneda_predeterminada, procesar_archivos
-from providers import PROVEEDORES_CONFIGURADOS, PROVEEDORES_SIN_REGLAS, OPCIONES_PROVEEDORES
+from providers import PROVEEDORES_CONFIGURADOS, PROVEEDORES_SIN_REGLAS, OPCIONES_PROVEEDORES, REGISTRO
 from providers.nexsys import es_catalogo
 
 st.title('Price List Normalizer')
@@ -44,11 +44,11 @@ if archivos:
     else:
         st.info('No se pudo identificar un mismo mayorista en todos los nombres. Selecciona el proveedor manualmente.')
 if proveedor in PROVEEDORES_SIN_REGLAS:
-    st.info(
+    st.info(getattr(REGISTRO[proveedor], 'AVISO_PENDIENTE',
         f'{proveedor}: esta opción ya está disponible, pero todavía no tiene reglas '
         'de lectura configuradas. Para evitar inventar o asignar mal datos, necesitamos '
         'revisar una lista de ejemplo antes de habilitar su procesamiento.'
-    )
+    ))
 st.caption('Puedes seleccionar varios archivos. PDF: se recorren todas las páginas y se extraen tablas con texto seleccionable. Los PDF escaneados requieren OCR. Tecnoglobal, Nexsys, Ingram, Coimco y Fujicorp: se revisan las hojas elegidas. Intcomex y Kepler: primera hoja. '
            'La consolidación CRM está disponible para los proveedores con reglas configuradas.')
 hojas_por_archivo = {}

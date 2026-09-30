@@ -16,6 +16,7 @@ providers/             Un módulo por mayorista
   nexsys.py            Reglas Nexsys y catálogo Hardware solo USD
   solutionbox.py       Plantillas SolutionBox y disponibilidad
   demco.py             Código Interno, Precio Neto y stock numérico
+  gerona.py            CLP, CodigoSKU y Modelo como PN; pendiente de stock
   facciatech.py         Pendiente de configurar
   gtc_ribbon.py         Pendiente de configurar
   otro.py              Pendiente de configurar
