@@ -123,6 +123,21 @@ class ProviderTests(unittest.TestCase):
         self.assertEqual(list(summary.Estado), ['Error', 'Procesado'])
         self.assertEqual(len(result), 1)
 
+    def test_intcomex_hikvision(self):
+        headers = ['Imagen', 'SKU', 'PART #', 'Descripción', 'DPV', 'Unit Price$']
+        rows = [[None, 'ES213HIK97', 'PN-A', 'Cámara', '500+', 10.744],
+                [None, 'B', 'PN-B', 'Otra', '20+', 22.969],
+                [None, None, None, None, 'DPV', 'Unit Price$'],
+                [None, 'C', 'PN-C', 'Sin stock', 0, 10],
+                [None, 'D', 'PN-D', 'Comentario', '30 DIAS', 10]]
+        summary, result = procesar_archivos([excel(headers, rows)], FECHA, 'Intcomex')
+        self.assertEqual(summary.iloc[0]['Estado'], 'Procesado')
+        self.assertEqual(list(result.quantity), [500, 20])
+        self.assertEqual(list(result.currency_unaware_cost_neto), [10.744, 22.969])
+        self.assertEqual(result.iloc[0].mpn, 'PN-A')
+        self.assertEqual(result.iloc[0]['name'], 'Cámara')
+        self.assertTrue((result.brand == '').all())
+
     def test_exports_and_conflicts(self):
         _, result = procesar_archivos([excel(PLANTILLAS['Intcomex'], [['A', 12.75, 3], ['A', 12.75, 3], ['B', 5, 1], ['B', 6, 1]])], FECHA)
         clean, conflicts, duplicates = consolidar(result)

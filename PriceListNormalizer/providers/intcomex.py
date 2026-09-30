@@ -1,6 +1,7 @@
 """Reglas de Intcomex. No se infieren datos de producto ausentes."""
 from table_reader import ReglasTabla, leer_tablas
 import pandas as pd
+import re
 from common import normalizar_productos, normalizar_texto_columna
 from file_readers import leer_csv, detectar_encabezado, leer_hoja_xlsx_con_datos, palabras_clave_encabezado
 
@@ -8,6 +9,7 @@ NOMBRE = 'Intcomex'
 PATRON = r'INTCOMEX'
 MONEDA = 'USD'
 REGLAS = ReglasTabla(nombre=NOMBRE, codigos=('SKU', 'MATERIAL/SKU', 'MATERIAL', 'CODIGO'), moneda_fija='USD')
+HIKVISION = {'SKU', 'PART #', 'DESCRIPCION', 'DPV', 'UNIT PRICE$'}
 
 
 def leer_intcomex_xlsx(archivo):
@@ -17,7 +19,8 @@ def leer_intcomex_xlsx(archivo):
     columnas_asus = {'SKU INTCOMEX', 'NUMERO DE PARTE', 'PRECIO USD (S/IVA)',
                      'STOCK REFERENCIAL', 'DETALLE'}
     candidatos = [i for i, fila in bruto.iterrows()
-                  if columnas_asus.issubset({normalizar_texto_columna(v) for v in fila})]
+                  if columnas_asus.issubset({normalizar_texto_columna(v) for v in fila})
+                  or HIKVISION.issubset({normalizar_texto_columna(v) for v in fila})]
     if candidatos:
         encabezado = candidatos[0]
     else:
@@ -90,6 +93,23 @@ def procesar_intcomex_wd(df, expiry_date):
     return resultado
 
 
+def procesar_intcomex_hikvision(df, fecha):
+    columnas = {normalizar_texto_columna(c): c for c in df.columns}
+    def stock(valor):
+        # 500+ indica al menos 500: usar únicamente la cantidad informada.
+        texto = str(valor).strip()
+        return pd.to_numeric(texto.rstrip('+').strip(), errors='coerce') if re.fullmatch(r'\d+(?:\.0+)?\s*\+?', texto) else None
+    base = pd.DataFrame({
+        'SKU': df[columnas['SKU']],
+        'venta neto usd': df[columnas['UNIT PRICE$']],
+        'stock actual': df[columnas['DPV']].map(stock),
+    }, index=df.index)
+    resultado = normalizar_productos(base, fecha)
+    for destino, origen in [('mpn', 'PART #'), ('name', 'DESCRIPCION')]:
+        resultado[destino] = df.loc[resultado.index, columnas[origen]].fillna('').astype(str).str.strip()
+    return resultado
+
+
 def leer(archivo, fecha, moneda, permitir_pn=False, hojas_seleccionadas=None):
     if archivo.name.lower().endswith('.pdf'):
         return leer_tablas(archivo, fecha, moneda, permitir_pn, hojas_seleccionadas, reglas=REGLAS)
@@ -103,7 +123,9 @@ def leer(archivo, fecha, moneda, permitir_pn=False, hojas_seleccionadas=None):
         archivo.seek(0)
         df = pd.read_excel(archivo, header=encabezado)
     columnas = {normalizar_texto_columna(c) for c in df.columns}
-    if {'SKU INTCOMEX', 'NUMERO DE PARTE', 'PRECIO USD (S/IVA)', 'STOCK REFERENCIAL', 'DETALLE'}.issubset(columnas):
+    if HIKVISION.issubset(columnas):
+        resultado = procesar_intcomex_hikvision(df, fecha)
+    elif {'SKU INTCOMEX', 'NUMERO DE PARTE', 'PRECIO USD (S/IVA)', 'STOCK REFERENCIAL', 'DETALLE'}.issubset(columnas):
         resultado = procesar_intcomex_asus(df, fecha)
     elif {'PART NUMBER (MPN)', 'PRECIO ESPECIAL NETO UNIT. CENTRALE'}.issubset(columnas):
         resultado = procesar_intcomex_wd(df, fecha)
