@@ -10,6 +10,7 @@ PATRON = r'INTCOMEX'
 MONEDA = 'USD'
 REGLAS = ReglasTabla(nombre=NOMBRE, codigos=('SKU', 'MATERIAL/SKU', 'MATERIAL', 'CODIGO'), moneda_fija='USD')
 HIKVISION = {'SKU', 'PART #', 'DESCRIPCION', 'DPV', 'UNIT PRICE$'}
+PRECIOS_TOP = {'SKU', 'PART NUMBER MARCA', 'PRODUCT NAME', 'STOCK', 'PRECIOS TOP'}
 
 
 def leer_intcomex_xlsx(archivo):
@@ -20,7 +21,8 @@ def leer_intcomex_xlsx(archivo):
                      'STOCK REFERENCIAL', 'DETALLE'}
     candidatos = [i for i, fila in bruto.iterrows()
                   if columnas_asus.issubset({normalizar_texto_columna(v) for v in fila})
-                  or HIKVISION.issubset({normalizar_texto_columna(v) for v in fila})]
+                  or HIKVISION.issubset({normalizar_texto_columna(v) for v in fila})
+                  or PRECIOS_TOP.issubset({normalizar_texto_columna(v) for v in fila})]
     if candidatos:
         encabezado = candidatos[0]
     else:
@@ -110,6 +112,23 @@ def procesar_intcomex_hikvision(df, fecha):
     return resultado
 
 
+def procesar_intcomex_top(df, fecha):
+    nombres = [normalizar_texto_columna(c) for c in df.columns]
+    if any(nombres.count(c) != 1 for c in PRECIOS_TOP | ({'MARCA'} if 'MARCA' in nombres else set())):
+        raise ValueError('Intcomex: columnas duplicadas en la plantilla Precios Top.')
+    columnas = dict(zip(nombres, df.columns))
+    base = pd.DataFrame({
+        'SKU': df[columnas['SKU']],
+        'venta neto usd': df[columnas['PRECIOS TOP']],
+        'stock actual': pd.to_numeric(df[columnas['STOCK']], errors='coerce'),
+    }, index=df.index)
+    resultado = normalizar_productos(base, fecha)
+    for destino, origen in [('mpn', 'PART NUMBER MARCA'), ('name', 'PRODUCT NAME'), ('brand', 'MARCA')]:
+        if origen in columnas:
+            resultado[destino] = df.loc[resultado.index, columnas[origen]].fillna('').astype(str).str.strip()
+    return resultado
+
+
 def leer(archivo, fecha, moneda, permitir_pn=False, hojas_seleccionadas=None):
     if archivo.name.lower().endswith('.pdf'):
         return leer_tablas(archivo, fecha, moneda, permitir_pn, hojas_seleccionadas, reglas=REGLAS)
@@ -123,7 +142,9 @@ def leer(archivo, fecha, moneda, permitir_pn=False, hojas_seleccionadas=None):
         archivo.seek(0)
         df = pd.read_excel(archivo, header=encabezado)
     columnas = {normalizar_texto_columna(c) for c in df.columns}
-    if HIKVISION.issubset(columnas):
+    if PRECIOS_TOP.issubset(columnas):
+        resultado = procesar_intcomex_top(df, fecha)
+    elif HIKVISION.issubset(columnas):
         resultado = procesar_intcomex_hikvision(df, fecha)
     elif {'SKU INTCOMEX', 'NUMERO DE PARTE', 'PRECIO USD (S/IVA)', 'STOCK REFERENCIAL', 'DETALLE'}.issubset(columnas):
         resultado = procesar_intcomex_asus(df, fecha)

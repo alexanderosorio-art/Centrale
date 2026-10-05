@@ -177,6 +177,19 @@ class ProviderTests(unittest.TestCase):
             [['107XP00002', 75261462, 'Producto', 48, 32]])], FECHA, 'Gtc ribbon')
         self.assertEqual(result.iloc[0].mpn, '75261462')
 
+    def test_intcomex_top(self):
+        headers = ['Marca ', 'Product Sub Category', 'SKU', 'Part Number Marca', 'Product Name', 'Stock', ' Precios Top']
+        rows = [['ASUS', 'PSU', ' CS000ASU21 ', '90YE00V2-B0AA00', 'Fuente', 86, 338.26804123711344],
+                ['MSI', 'GPU', 'B', 'PN-B', 'Video', 0, 100]]
+        summary, result = procesar_archivos([excel(headers, rows)], FECHA, 'Intcomex')
+        self.assertEqual(summary.iloc[0]['Estado'], 'Procesado')
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result.iloc[0].provider_code, 'CS000ASU21')
+        self.assertAlmostEqual(result.iloc[0].currency_unaware_cost_neto, 338.26804123711344)
+        self.assertEqual(result.iloc[0].mpn, '90YE00V2-B0AA00')
+        self.assertEqual(result.iloc[0].brand, 'ASUS')
+        self.assertEqual(result.iloc[0]['name'], 'Fuente')
+
 
 if __name__ == '__main__':
     unittest.main()
