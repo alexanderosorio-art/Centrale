@@ -156,10 +156,26 @@ class ProviderTests(unittest.TestCase):
         book.close()
 
     def test_unconfigured_providers_are_not_guessed(self):
-        for provider in ['Gtc ribbon', 'Otro', 'Gerona']:
+        for provider in ['Otro', 'Gerona']:
             summary, result = procesar_archivos([excel(PLANTILLAS['Intcomex'], [['A', 1, 2]])], FECHA, provider)
             self.assertEqual(summary.iloc[0]['Estado'], 'Error')
             self.assertTrue(result.empty)
+
+    def test_gtc_volume_and_ean(self):
+        headers = ['CODIGO GTC', 'EAN', 'DESCRIPCION', 'STOCK', 'NETO USD', 'OFERTA NETO USD', 'OBS']
+        rows = [['A', '123456', 'Producto', 358, 46, 43.5, 'PRECIO X COMPRA DE 150 UNIDADES O MAS'],
+                ['B', '234567', 'Otro', 2, 50, 40, None],
+                ['C', None, 'Sin normal', 5, None, 20, 'OFERTA POR VOLUMEN']]
+        summary, result = procesar_archivos([excel(headers, rows)], FECHA, 'Gtc ribbon')
+        self.assertEqual(summary.iloc[0]['Estado'], 'Procesado')
+        self.assertEqual(list(result.currency_unaware_cost_neto), [46, 40])
+        self.assertTrue((result.mpn == '').all())
+        self.assertTrue((result.brand == '').all())
+
+    def test_gtc_numeric_pn(self):
+        _, result = procesar_archivos([excel(['CODIGO GTC', 'PART NUMBER', 'DESCRIPCION', 'STOCK', 'OFERTA USD NETO'],
+            [['107XP00002', 75261462, 'Producto', 48, 32]])], FECHA, 'Gtc ribbon')
+        self.assertEqual(result.iloc[0].mpn, '75261462')
 
 
 if __name__ == '__main__':

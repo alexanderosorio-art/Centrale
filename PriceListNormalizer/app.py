@@ -103,6 +103,8 @@ if proveedor == 'Demco Ltda.':
     st.caption('Demco: se revisan todas las hojas. Se usa Código Interno como código de proveedor, Número de Parte como PN y Precio Neto como costo.')
 if proveedor == 'Facciatech':
     st.caption('Facciatech: solo se procesa la hoja Resumen. Se usa Precio Neto detalle, ID como código y Part Number como PN. Moneda predeterminada: CLP.')
+if proveedor == 'Gtc ribbon':
+    st.caption('Gtc ribbon: CODIGO GTC como código y PART NUMBER como PN cuando exista. EAN no reemplaza el PN. Las ofertas condicionadas a volumen se ignoran; se usa el precio normal disponible. La marca solo se copia de una columna MARCA.')
 catalogo_nexsys = False
 if proveedor == 'Nexsys':
     for archivo in archivos:
