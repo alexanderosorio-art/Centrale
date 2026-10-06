@@ -148,6 +148,8 @@ if proveedor == 'Facciatech':
     st.caption('Facciatech: solo se procesa la hoja Resumen. Se usa Precio Neto detalle, ID como código y Part Number como PN. Moneda predeterminada: CLP.')
 if proveedor == 'Gtc ribbon':
     st.caption('Gtc ribbon: CODIGO GTC como código y PART NUMBER como PN cuando exista. EAN no reemplaza el PN. Las ofertas condicionadas a volumen se ignoran; se usa el precio normal disponible. La marca solo se copia de una columna MARCA.')
+if proveedor == 'Gerona':
+    st.warning('Gerona: este catálogo no informa stock; quantity queda vacío, no en cero. Se usa Precio Lista (sin IVA), CodigoSKU como código y Modelo como PN. Confirma que el CRM acepta cantidad vacía antes de cargar.')
 catalogo_nexsys = False
 if proveedor == 'Nexsys':
     for archivo in archivos:

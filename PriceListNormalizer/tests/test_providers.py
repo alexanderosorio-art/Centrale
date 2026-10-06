@@ -156,10 +156,28 @@ class ProviderTests(unittest.TestCase):
         book.close()
 
     def test_unconfigured_providers_are_not_guessed(self):
-        for provider in ['Otro', 'Gerona']:
+        for provider in ['Otro']:
             summary, result = procesar_archivos([excel(PLANTILLAS['Intcomex'], [['A', 1, 2]])], FECHA, provider)
             self.assertEqual(summary.iloc[0]['Estado'], 'Error')
             self.assertTrue(result.empty)
+
+    def test_gerona_empty_stock(self):
+        headers = ['CodigoSKU', 'Modelo', 'Descripcion', 'Marca', 'Precio Lista (sin IVA)', 'Precio Sugerido']
+        rows = [[112275, 'CD289-90549', 'Cargador', 'UGREEN', 43692.0168067227, 79990],
+                [112276, 'PN-B', 'OPEN BOX cargador', 'UGREEN', 100, 200],
+                [112277, 'PN-C', 'Sin costo', None, None, 200]]
+        summary, df = procesar_archivos([excel(headers, rows)], FECHA, 'Gerona')
+        self.assertEqual(summary.iloc[0]['Estado'], 'Procesado')
+        self.assertEqual(len(df), 1)
+        self.assertEqual(df.iloc[0].provider_code, '112275')
+        self.assertAlmostEqual(df.iloc[0].currency_unaware_cost_neto, 43692.0168067227)
+        self.assertEqual(df.iloc[0].quantity, '')
+        self.assertEqual(df.iloc[0].mpn, 'CD289-90549')
+        self.assertEqual(df.iloc[0].currency, 'CLP')
+        copia = generar_tsv(df.drop(columns='Archivo de origen')).splitlines()[0].split('\t')
+        self.assertEqual(copia[4], '')
+        libro = openpyxl.load_workbook(generar_excel(df.drop(columns='Archivo de origen')))
+        self.assertIsNone(libro.active['E2'].value)
 
     def test_gtc_volume_and_ean(self):
         headers = ['CODIGO GTC', 'EAN', 'DESCRIPCION', 'STOCK', 'NETO USD', 'OFERTA NETO USD', 'OBS']
