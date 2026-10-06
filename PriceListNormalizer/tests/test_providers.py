@@ -202,6 +202,25 @@ class ProviderTests(unittest.TestCase):
         self.assertEqual(result.iloc[0].mpn, '100-100001721WOF')
         self.assertEqual(result.iloc[0].brand, 'AMD')
 
+    def test_intcomex_hpe_immediate_only(self):
+        headers = ['PN', 'DESCRIPCIÓN', 'PRECIO UN\nVENTA', 'Precio\nPROMO Referencial', 'Tiempo\nENTREGA', 'SKU INTCOMEX']
+        rows = [['PN-A', 'Servidor', 3000, 2370, '20 unidades\nENTREGA INMEDIATA', 'A'],
+                ['PN-B', 'Tránsito', 3000, 2500, '5 Unidades en transito 7-15 dias', 'B'],
+                ['PN-C', 'Fábrica', 3000, 2500, 'pedido fabrica 35-60 dias', 'C'],
+                ['PN-D', 'Normal', 1500, None, '1 UN Entrega Inmediata', 'D'],
+                ['PN-E', 'Sin cantidad', 1500, 1000, 'Entrega Inmediata', 'E']]
+        stream = excel(headers, rows)
+        book = openpyxl.load_workbook(stream)
+        book.active.title = 'LP GEN 11'
+        book.create_sheet('PROMOS E INCENTIVOS', 0)
+        stream.seek(0); stream.truncate(0); book.save(stream); stream.seek(0)
+        summary, result = procesar_archivos([stream], FECHA, 'Intcomex')
+        self.assertEqual(summary.iloc[0]['Estado'], 'Procesado')
+        self.assertEqual(list(result.provider_code), ['A', 'D'])
+        self.assertEqual(list(result.quantity), [20, 1])
+        self.assertEqual(list(result.currency_unaware_cost_neto), [2370, 1500])
+        self.assertTrue((result.brand == '').all())
+
 
 if __name__ == '__main__':
     unittest.main()
