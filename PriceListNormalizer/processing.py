@@ -1,7 +1,7 @@
 """Detección del proveedor y procesamiento de lotes con errores por archivo."""
 import re
 import pandas as pd
-from common import normalizar_columna
+from common import normalizar_columna, excluir_cajas_abiertas
 from providers import REGISTRO
 
 def detectar_proveedores_archivo(nombre):
@@ -45,7 +45,10 @@ def procesar_archivos(archivos, fecha, proveedor="Intcomex", moneda_valor=None, 
                 archivo, fecha, moneda_valor, permitir_pn,
                 hojas_seleccionadas=(hojas_por_archivo or {}).get(numero - 1),
             )
-            resultado = resultado.copy()
+            antes = len(resultado)
+            resultado = excluir_cajas_abiertas(resultado)
+            if antes != len(resultado):
+                detalle += f'. OPEN BOX/BAD BOX excluidos: {antes-len(resultado)}'
             # La elección del usuario prevalece; nunca convierte los importes.
             resultado['currency'] = 'USD' if resultado.attrs.get('currency_policy') == 'USD_ONLY' else moneda_valor
             fila.update({'Leídos': leidos, 'Válidos': len(resultado),

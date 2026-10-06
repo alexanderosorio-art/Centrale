@@ -11,6 +11,49 @@ from providers.nexsys import es_catalogo
 
 st.title('Price List Normalizer')
 st.write('Generador de listas de precios para carga al CRM')
+modo = st.radio('Tipo de procesamiento', ['Listas de precios', 'Inventario de marca (solo stock)'])
+st.caption('Se excluyen productos etiquetados OPEN BOX o BAD BOX de todas las listas.')
+if modo == 'Inventario de marca (solo stock)':
+    from stock_reader import procesar_stock
+    st.info('Resultados separados para Ingram y Compusoluciones. Se conservan las 10 columnas, sin completar precios, moneda, fecha ni otros datos ausentes. Esto no actualiza el CRM automáticamente.')
+    inventarios = st.file_uploader('Subir inventarios de marca', type=['xlsx'], accept_multiple_files=True, key='stock_archivos')
+    firma_stock = tuple((a.name, hashlib.sha256(a.getvalue()).hexdigest()) for a in inventarios)
+    if st.session_state.get('firma_stock') != firma_stock:
+        st.session_state['firma_stock'] = firma_stock
+        st.session_state.pop('resultado_stock', None)
+        for clave in list(st.session_state):
+            if clave.startswith('editor_stock_'):
+                del st.session_state[clave]
+    if st.button('Procesar inventario'):
+        if inventarios:
+            st.session_state['resultado_stock'] = procesar_stock(inventarios)
+        else:
+            st.warning('Sube un inventario primero.')
+    if 'resultado_stock' in st.session_state:
+        resumen_stock, separados = st.session_state['resultado_stock']
+        st.dataframe(resumen_stock, hide_index=True)
+        for mayorista, datos_stock in separados.items():
+            st.subheader(mayorista)
+            st.caption('Puedes desmarcar filas para excluirlas. No se suman ni fusionan productos repetidos.')
+            if mayorista == 'Compusoluciones':
+                st.warning('Esta hoja no informa código del proveedor: provider_code queda vacío. Confirma que el destino admite identificar por PN antes de cargar al CRM.')
+            repetidos_stock = datos_stock.duplicated(subset=['provider_code', 'mpn'], keep=False)
+            if repetidos_stock.any():
+                st.warning('Hay identificadores repetidos. Revisa las filas antes de copiar; no se eligió ni sumó stock automáticamente.')
+            revision_stock = datos_stock.copy()
+            revision_stock.insert(0, 'Incluir', True)
+            elegido_stock = st.data_editor(revision_stock, hide_index=True, disabled=list(datos_stock.columns),
+                key='editor_stock_' + mayorista, column_config={'Incluir': st.column_config.CheckboxColumn('Incluir')})
+            final_stock = elegido_stock.loc[elegido_stock['Incluir']].drop(columns='Incluir')
+            st.write(f'{len(final_stock)} productos seleccionados')
+            if not final_stock.empty:
+                descarga_stock, copia_stock = st.columns([2, 1])
+                with descarga_stock:
+                    st.download_button('Descargar inventario de ' + mayorista, generar_excel(final_stock),
+                        file_name='Stock ' + mayorista + '.xlsx', key='descarga_stock_' + mayorista)
+                with copia_stock:
+                    boton_copiar_excel(final_stock)
+    st.stop()
 archivos = st.file_uploader('Subir listas de precios del mismo proveedor',
                            type=['xlsx', 'xls', 'csv', 'pdf'], accept_multiple_files=True)
 import_hash_archivos = tuple(hashlib.sha256(a.getvalue()).hexdigest() for a in archivos)

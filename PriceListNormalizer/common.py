@@ -1,7 +1,17 @@
 """Normalización compartida: no contiene reglas de proveedores."""
 import pandas as pd
+import re
 from datetime import datetime, time, timedelta
 from calendar import monthrange
+
+def excluir_cajas_abiertas(df):
+    """Excluir etiquetas explícitas OPEN BOX/BAD BOX, sin inferir condición."""
+    if df.empty:
+        return df.copy()
+    patron = r'(?<![A-Z0-9])(?:OPEN|BAD)[\s_-]*BOX(?![A-Z0-9])'
+    excluir = df.apply(lambda fila: any(re.search(patron, str(v).upper())
+                                      for v in fila if pd.notna(v)), axis=1)
+    return df.loc[~excluir].copy()
 
 def calcular_expiry_date():
     hoy = datetime.now().date()
@@ -69,7 +79,7 @@ def limpiar_numero(valor):
 
 
 def normalizar_productos(df, expiry_date):
-    df = df.copy()
+    df = excluir_cajas_abiertas(df)
     df.columns = [str(columna).strip().lower() for columna in df.columns]
     resultado = pd.DataFrame()
 
