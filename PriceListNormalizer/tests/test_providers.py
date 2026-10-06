@@ -190,15 +190,15 @@ class ProviderTests(unittest.TestCase):
         self.assertEqual(result.iloc[0].brand, 'ASUS')
         self.assertEqual(result.iloc[0]['name'], 'Fuente')
 
-    def test_tecnoglobal_components_excludes_volume_price(self):
+    def test_tecnoglobal_components_uses_volume_price(self):
         headers = ['CodigoArticulo', 'PartNumber', 'DescripCorta', 'DescripcionMarca', 'Stock ', 'Precio Volumen', 'Precio Venta']
         rows = [['AM0-285', '100-100001721WOF', 'Procesador', 'AMD', 22, 307.3, 312.2],
                 ['B', 'PN-B', 'Otro', 'Asus', 0, 10, 12],
-                ['C', 'PN-C', 'Sin precio normal', 'AMD', 1, 10, None]]
+                ['C', 'PN-C', 'Sin precio volumen', 'AMD', 1, None, 10]]
         summary, result = procesar_archivos([excel(headers, rows)], FECHA, 'Tecnoglobal')
         self.assertEqual(summary.iloc[0]['Estado'], 'Procesado')
         self.assertEqual(len(result), 1)
-        self.assertEqual(result.iloc[0].currency_unaware_cost_neto, 312.2)
+        self.assertEqual(result.iloc[0].currency_unaware_cost_neto, 307.3)
         self.assertEqual(result.iloc[0].mpn, '100-100001721WOF')
         self.assertEqual(result.iloc[0].brand, 'AMD')
 

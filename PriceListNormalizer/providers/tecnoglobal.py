@@ -13,7 +13,7 @@ REGLAS = ReglasTabla(nombre=NOMBRE, codigos=('CODIGO TG', 'CODIGO', 'CODIGO SIST
 def leer(archivo, fecha, moneda, permitir_pn=False, hojas_seleccionadas=None):
     if archivo.name.lower().endswith('.xlsx'):
         nombres = obtener_nombres_hojas(archivo) if hojas_seleccionadas is None else hojas_seleccionadas
-        requeridas = {'CODIGOARTICULO', 'PARTNUMBER', 'DESCRIPCORTA', 'DESCRIPCIONMARCA', 'STOCK', 'PRECIO VENTA'}
+        requeridas = {'CODIGOARTICULO', 'PARTNUMBER', 'DESCRIPCORTA', 'DESCRIPCIONMARCA', 'STOCK', 'PRECIO VOLUMEN'}
         salida, leidos, usadas = [], 0, []
         for nombre in nombres:
             bruto = leer_hoja_xlsx_con_datos(archivo, nombre)
@@ -27,7 +27,7 @@ def leer(archivo, fecha, moneda, permitir_pn=False, hojas_seleccionadas=None):
                 def campo(c):
                     return datos.iloc[:, cols.index(c)]
                 base = pd.DataFrame({'SKU': campo('CODIGOARTICULO'),
-                    'venta neto usd': campo('PRECIO VENTA'),
+                    'venta neto usd': campo('PRECIO VOLUMEN'),
                     'stock actual': pd.to_numeric(campo('STOCK'), errors='coerce')}, index=datos.index)
                 result = normalizar_productos(base, fecha)
                 for destino, origen in [('mpn', 'PARTNUMBER'), ('name', 'DESCRIPCORTA'), ('brand', 'DESCRIPCIONMARCA')]:
@@ -50,5 +50,5 @@ def leer(archivo, fecha, moneda, permitir_pn=False, hojas_seleccionadas=None):
                     salida.append(otro)
                     leidos += cantidad
             return pd.concat(salida, ignore_index=True), leidos, ('Hojas de componentes: ' + ', '.join(usadas) +
-                '. Se usa Precio Venta; no se usa Precio Volumen.')
+                '. Se usa Precio Volumen por elección del usuario; no se usa Precio Venta.')
     return leer_tablas(archivo, fecha, moneda, permitir_pn, hojas_seleccionadas, reglas=REGLAS)
