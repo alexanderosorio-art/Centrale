@@ -12,6 +12,7 @@ REGLAS = ReglasTabla(nombre=NOMBRE, codigos=('SKU', 'MATERIAL/SKU', 'MATERIAL', 
 HIKVISION = {'SKU', 'PART #', 'DESCRIPCION', 'DPV', 'UNIT PRICE$'}
 PRECIOS_TOP = {'SKU', 'PART NUMBER MARCA', 'PRODUCT NAME', 'STOCK', 'PRECIOS TOP'}
 DELL = {'SKU', 'PN DELL', 'DESCRIPCION', 'PRECIO USD', 'STOCK REF'}
+HP_SEMANAL = {'LOCAL SKU', 'MPN', 'PRODUCT NAME (LOCAL)', 'STOCK', 'PRECIO NORMAL'}
 
 
 def leer_intcomex_xlsx(archivo):
@@ -24,7 +25,8 @@ def leer_intcomex_xlsx(archivo):
                   if columnas_asus.issubset({normalizar_texto_columna(v) for v in fila})
                   or HIKVISION.issubset({normalizar_texto_columna(v) for v in fila})
                   or PRECIOS_TOP.issubset({normalizar_texto_columna(v) for v in fila})
-                  or DELL.issubset({normalizar_texto_columna(v) for v in fila})]
+                  or DELL.issubset({normalizar_texto_columna(v) for v in fila})
+                  or HP_SEMANAL.issubset({normalizar_texto_columna(v) for v in fila})]
     if candidatos:
         encabezado = candidatos[0]
     else:
@@ -205,6 +207,25 @@ def procesar_intcomex_dell(df, fecha):
     return resultado
 
 
+def procesar_intcomex_hp_semanal(df, fecha):
+    cols = [normalizar_texto_columna(c) for c in df.columns]
+    promos = [c for c in cols if c == 'PRECIO PROMO' or c.startswith('PRECIO PROMO ')]
+    if len(promos) > 1 or any(cols.count(c) != 1 for c in HP_SEMANAL):
+        raise ValueError('Intcomex HP: columnas duplicadas o múltiples precios promocionales; revisa la lista.')
+    def campo(c):
+        return df.iloc[:, cols.index(c)]
+    precio = campo('PRECIO NORMAL').map(limpiar_numero)
+    if promos:
+        promocion = campo(promos[0]).map(limpiar_numero)
+        precio = promocion.where(promocion > 0, precio)
+    base = pd.DataFrame({'SKU': campo('LOCAL SKU'), 'venta neto usd': precio,
+        'stock actual': pd.to_numeric(campo('STOCK'), errors='coerce')}, index=df.index)
+    resultado = normalizar_productos(base, fecha)
+    for destino, origen in [('mpn', 'MPN'), ('name', 'PRODUCT NAME (LOCAL)')]:
+        resultado[destino] = campo(origen).loc[resultado.index].fillna('').astype(str).str.strip()
+    return resultado
+
+
 def leer(archivo, fecha, moneda, permitir_pn=False, hojas_seleccionadas=None):
     if archivo.name.lower().endswith('.pdf'):
         return leer_tablas(archivo, fecha, moneda, permitir_pn, hojas_seleccionadas, reglas=REGLAS)
@@ -221,7 +242,10 @@ def leer(archivo, fecha, moneda, permitir_pn=False, hojas_seleccionadas=None):
         archivo.seek(0)
         df = pd.read_excel(archivo, header=encabezado)
     columnas = {normalizar_texto_columna(c) for c in df.columns}
-    if DELL.issubset(columnas):
+    if HP_SEMANAL.issubset(columnas):
+        resultado = procesar_intcomex_hp_semanal(df, fecha)
+        return resultado, len(df), 'Intcomex HP: precio promocional con respaldo normal. Solo Stock; Llegada no se suma. Marca no inferida.'
+    elif DELL.issubset(columnas):
         resultado = procesar_intcomex_dell(df, fecha)
         return resultado, len(df), 'Intcomex Dell: Precio USD y Stock Ref. Se excluyen stock cero, tránsito, Pronto Stock y hojas de garantías sin stock. Marca no inferida.'
     elif PRECIOS_TOP.issubset(columnas):

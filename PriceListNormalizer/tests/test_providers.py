@@ -197,6 +197,20 @@ class ProviderTests(unittest.TestCase):
         self.assertEqual(df.iloc[0].mpn, 'PN-A')
         self.assertEqual(df.iloc[0].brand, '')
 
+    def test_intcomex_hp_weekly(self):
+        headers = ['Local Sku', 'MPN', 'Product Name (Local)', 'Stock', 'Llegada', 'Precio Normal', 'Precio Promo Octubre', 'Ext Gtia']
+        rows = [['A', 'PN-A', 'Notebook', 714, 100, 1409, 1319, 'Precio USD 68'],
+                ['B', 'PN-B', 'Tránsito', 0, 600, 100, 90, None],
+                ['C', 'PN-C', 'Normal', 1, 0, 105, None, None],
+                ['D', 'PN-D', 'BAD BOX monitor', 1, 0, 100, 99, None]]
+        summary, df = procesar_archivos([excel(headers, rows)], FECHA, 'Intcomex')
+        self.assertEqual(summary.iloc[0]['Estado'], 'Procesado')
+        self.assertEqual(list(df.provider_code), ['A', 'C'])
+        self.assertEqual(list(df.currency_unaware_cost_neto), [1319, 105])
+        self.assertEqual(list(df.quantity), [714, 1])
+        self.assertEqual(df.iloc[0].mpn, 'PN-A')
+        self.assertTrue((df.brand == '').all())
+
     def test_gtc_volume_and_ean(self):
         headers = ['CODIGO GTC', 'EAN', 'DESCRIPCION', 'STOCK', 'NETO USD', 'OFERTA NETO USD', 'OBS']
         rows = [['A', '123456', 'Producto', 358, 46, 43.5, 'PRECIO X COMPRA DE 150 UNIDADES O MAS'],
