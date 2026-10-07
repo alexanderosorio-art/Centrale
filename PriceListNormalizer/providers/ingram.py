@@ -2,7 +2,7 @@
 from table_reader import ReglasTabla, leer_tablas, PRECIOS, PART_NUMBERS
 
 NOMBRE = 'Ingram'
-PATRON = r'INGRAM'
+PATRON = r'(?:INGRAM|IM)'
 MONEDA = 'USD'
 REGLAS = ReglasTabla(nombre=NOMBRE, codigos=('MATERIAL/SKU', 'INGRAM MICRO SKU', 'IM SKU', 'MATERIAL', 'SKU INGRAM'), precios=('COSTO', *PRECIOS), part_numbers=(*PART_NUMBERS, 'PN'), lectura_acotada=True, requiere_descripcion=False)
 

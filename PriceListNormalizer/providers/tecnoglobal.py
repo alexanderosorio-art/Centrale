@@ -5,7 +5,7 @@ from common import normalizar_productos, normalizar_texto_columna
 from file_readers import obtener_nombres_hojas, leer_hoja_xlsx_con_datos
 
 NOMBRE = 'Tecnoglobal'
-PATRON = r'TECNO[\W_]*GLOBAL'
+PATRON = r'(?:TECNO[\W_]*GLOBAL|TG)'
 MONEDA = 'USD'
 REGLAS = ReglasTabla(nombre=NOMBRE, codigos=('CODIGO TG', 'CODIGO', 'CODIGO SISTEMA', 'SKU'))
 

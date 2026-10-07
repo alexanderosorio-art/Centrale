@@ -179,6 +179,24 @@ class ProviderTests(unittest.TestCase):
         libro = openpyxl.load_workbook(generar_excel(df.drop(columns='Archivo de origen')))
         self.assertIsNone(libro.active['E2'].value)
 
+    def test_supplier_short_names(self):
+        for nombre, esperado in [('LP_DELL_IX.xlsx', 'Intcomex'), ('LP_TG.xlsx', 'Tecnoglobal'), ('LP_IM.xlsx', 'Ingram')]:
+            self.assertEqual(detectar_proveedor_lote([nombre]), (esperado, 'detectado'))
+        self.assertEqual(detectar_proveedor_lote(['MAXIM.xlsx'])[1], 'sin_coincidencia')
+
+    def test_intcomex_dell_current_stock_only(self):
+        headers = ['SKU', 'PN Dell', 'Descripcion', 'Precio USD', 'Stock Ref', 'Pronto Stock']
+        rows = [['A', 'PN-A', 'Notebook', 3552, 40, 100],
+                headers, ['B', 'PN-B', 'Sin stock', 4800, 0, 200],
+                ['C', 'PN-C', 'OPEN BOX', 100, 1, None]]
+        summary, df = procesar_archivos([excel(headers, rows)], FECHA, 'Intcomex')
+        self.assertEqual(summary.iloc[0]['Estado'], 'Procesado')
+        self.assertEqual(list(df.provider_code), ['A'])
+        self.assertEqual(df.iloc[0].quantity, 40)
+        self.assertEqual(df.iloc[0].currency_unaware_cost_neto, 3552)
+        self.assertEqual(df.iloc[0].mpn, 'PN-A')
+        self.assertEqual(df.iloc[0].brand, '')
+
     def test_gtc_volume_and_ean(self):
         headers = ['CODIGO GTC', 'EAN', 'DESCRIPCION', 'STOCK', 'NETO USD', 'OFERTA NETO USD', 'OBS']
         rows = [['A', '123456', 'Producto', 358, 46, 43.5, 'PRECIO X COMPRA DE 150 UNIDADES O MAS'],

@@ -6,11 +6,12 @@ from common import normalizar_productos, normalizar_texto_columna, limpiar_numer
 from file_readers import leer_csv, detectar_encabezado, leer_hoja_xlsx_con_datos, palabras_clave_encabezado, obtener_nombres_hojas
 
 NOMBRE = 'Intcomex'
-PATRON = r'INTCOMEX'
+PATRON = r'(?:INTCOMEX|IX)'
 MONEDA = 'USD'
 REGLAS = ReglasTabla(nombre=NOMBRE, codigos=('SKU', 'MATERIAL/SKU', 'MATERIAL', 'CODIGO'), moneda_fija='USD')
 HIKVISION = {'SKU', 'PART #', 'DESCRIPCION', 'DPV', 'UNIT PRICE$'}
 PRECIOS_TOP = {'SKU', 'PART NUMBER MARCA', 'PRODUCT NAME', 'STOCK', 'PRECIOS TOP'}
+DELL = {'SKU', 'PN DELL', 'DESCRIPCION', 'PRECIO USD', 'STOCK REF'}
 
 
 def leer_intcomex_xlsx(archivo):
@@ -22,7 +23,8 @@ def leer_intcomex_xlsx(archivo):
     candidatos = [i for i, fila in bruto.iterrows()
                   if columnas_asus.issubset({normalizar_texto_columna(v) for v in fila})
                   or HIKVISION.issubset({normalizar_texto_columna(v) for v in fila})
-                  or PRECIOS_TOP.issubset({normalizar_texto_columna(v) for v in fila})]
+                  or PRECIOS_TOP.issubset({normalizar_texto_columna(v) for v in fila})
+                  or DELL.issubset({normalizar_texto_columna(v) for v in fila})]
     if candidatos:
         encabezado = candidatos[0]
     else:
@@ -187,6 +189,22 @@ def leer_hpe(archivo, fecha, moneda, nombres):
         '. Solo entrega inmediata con cantidad explícita; se excluye tránsito y pedido a fábrica. Precio promocional con respaldo normal.')
 
 
+def procesar_intcomex_dell(df, fecha):
+    cols = [normalizar_texto_columna(c) for c in df.columns]
+    if any(cols.count(c) != 1 for c in DELL):
+        raise ValueError('Intcomex Dell: columnas requeridas duplicadas.')
+    # Hay encabezados repetidos; se excluyen junto con las secciones sin datos.
+    datos = df.loc[df.iloc[:, cols.index('SKU')].map(normalizar_texto_columna).ne('SKU')]
+    def campo(c):
+        return datos.iloc[:, cols.index(c)]
+    base = pd.DataFrame({'SKU': campo('SKU'), 'venta neto usd': campo('PRECIO USD'),
+        'stock actual': pd.to_numeric(campo('STOCK REF'), errors='coerce')}, index=datos.index)
+    resultado = normalizar_productos(base, fecha)
+    for destino, origen in [('mpn', 'PN DELL'), ('name', 'DESCRIPCION')]:
+        resultado[destino] = campo(origen).loc[resultado.index].fillna('').astype(str).str.strip()
+    return resultado
+
+
 def leer(archivo, fecha, moneda, permitir_pn=False, hojas_seleccionadas=None):
     if archivo.name.lower().endswith('.pdf'):
         return leer_tablas(archivo, fecha, moneda, permitir_pn, hojas_seleccionadas, reglas=REGLAS)
@@ -203,7 +221,10 @@ def leer(archivo, fecha, moneda, permitir_pn=False, hojas_seleccionadas=None):
         archivo.seek(0)
         df = pd.read_excel(archivo, header=encabezado)
     columnas = {normalizar_texto_columna(c) for c in df.columns}
-    if PRECIOS_TOP.issubset(columnas):
+    if DELL.issubset(columnas):
+        resultado = procesar_intcomex_dell(df, fecha)
+        return resultado, len(df), 'Intcomex Dell: Precio USD y Stock Ref. Se excluyen stock cero, tránsito, Pronto Stock y hojas de garantías sin stock. Marca no inferida.'
+    elif PRECIOS_TOP.issubset(columnas):
         resultado = procesar_intcomex_top(df, fecha)
     elif HIKVISION.issubset(columnas):
         resultado = procesar_intcomex_hikvision(df, fecha)
