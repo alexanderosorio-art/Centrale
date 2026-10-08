@@ -13,9 +13,9 @@ from ui import iniciar_interfaz, AYUDA_ARCHIVOS, ayuda_proveedor
 iniciar_interfaz()
 st.title('Price List Normalizer')
 st.caption('Ordena tus listas y prepara un único resultado para el CRM.')
-modo = st.radio('Tipo de procesamiento', ['Listas de precios', 'Inventario de marca (solo stock)'], horizontal=True,
-    help='Listas de precios incluye costos y stock. Inventario de marca prepara resultados separados sin completar precios ausentes. Siempre se excluyen OPEN BOX y BAD BOX.')
-if modo == 'Inventario de marca (solo stock)':
+modo = st.selectbox('Tipo de procesamiento', ['Listas de precios', 'Lista de stock'], key='tipo_procesamiento',
+    help='Listas de precios incluye costos y stock. Lista de stock prepara resultados separados sin completar precios ausentes. Siempre se excluyen OPEN BOX y BAD BOX.')
+if modo == 'Lista de stock':
     from stock_reader import procesar_stock
     st.info('Resultados separados para Ingram y Compusoluciones. Se conservan las 10 columnas, sin completar precios, moneda, fecha ni otros datos ausentes. Esto no actualiza el CRM automáticamente.')
     inventarios = st.file_uploader('Subir inventarios de marca', type=['xlsx'], accept_multiple_files=True, key='stock_archivos')
@@ -71,6 +71,7 @@ if st.session_state.get('archivos_deteccion') != firma_deteccion:
     st.session_state['confirmar_proveedor_archivos'] = False
     if estado_deteccion == 'detectado':
         st.session_state[f'moneda_lista_{proveedor_detectado}'] = moneda_predeterminada(proveedor_detectado)
+espacio_lista = st.container(key='lista_pegada')
 proveedor = st.selectbox(
     'Proveedor',
     OPCIONES_PROVEEDORES,
@@ -102,7 +103,7 @@ def limpiar_lista_pegada():
     st.session_state.pop('lote', None)
 
 
-with st.expander('Pegar lista — cualquier mayorista'):
+with espacio_lista, st.expander('Lista'):
     texto = st.text_area('Pega la lista con sus encabezados', height=180, key='texto_ingram',
         placeholder='Copia una tabla de Excel, un correo o una lista con encabezados…',
         help='Acepta tablas tabuladas, Markdown o texto vertical. Se combina con los archivos del mismo mayorista. Puedes corregir las columnas antes de procesar; los datos ausentes no se completan.')

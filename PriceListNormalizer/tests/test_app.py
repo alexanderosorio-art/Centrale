@@ -9,6 +9,14 @@ from test_providers import excel, PLANTILLAS
 
 
 class AppTests(unittest.TestCase):
+    def test_stock_mode_name(self):
+        source = Path(__file__).resolve().parents[1] / 'app.py'
+        app = AppTest.from_file(str(source), default_timeout=20).run()
+        self.assertEqual(app.expander[0].label, 'Lista')
+        app.selectbox(key='tipo_procesamiento').select('Lista de stock').run()
+        self.assertFalse(app.exception)
+        self.assertEqual(app.file_uploader[0].key, 'stock_archivos')
+
     def test_contextual_help_and_short_interface(self):
         source = Path(__file__).resolve().parents[1] / 'app.py'
         app = AppTest.from_file(str(source), default_timeout=20).run()
@@ -48,18 +56,18 @@ with patch('streamlit.file_uploader', return_value=st.session_state.get('_files'
         self.assertFalse(app.exception)
         app.session_state['_files'] = [excel(PLANTILLAS['Intcomex'], [['A', 12.75, 3]], name='Intcomex.xlsx')]
         app.run()
-        self.assertEqual(app.selectbox[0].value, 'Intcomex')
-        self.assertEqual(app.selectbox[1].value, 'USD')
+        self.assertEqual(app.selectbox(key='proveedor_lista').value, 'Intcomex')
+        self.assertEqual(app.selectbox(key='moneda_lista_Intcomex').value, 'USD')
         app.button(key='procesar_listas').click().run()
         self.assertFalse(app.exception)
         self.assertEqual(len(app.session_state['lote'][1]), 1)
-        app.selectbox[1].select('CLP').run()
+        app.selectbox(key='moneda_lista_Intcomex').select('CLP').run()
         self.assertNotIn('lote', app.session_state)
         app.button(key='procesar_listas').click().run()
         self.assertEqual(app.session_state['lote'][1].iloc[0].currency, 'CLP')
         app.session_state['_files'] = [excel(PLANTILLAS['Ingram'], [['A', 12, 3]], name='Ingram.xlsx', second_sheet=True)]
         app.run()
-        self.assertEqual(app.selectbox[0].value, 'Ingram')
+        self.assertEqual(app.selectbox(key='proveedor_lista').value, 'Ingram')
         self.assertNotIn('lote', app.session_state)
         self.assertEqual(app.multiselect[0].value, [])
         app.multiselect[0].select('MATERIAL').select('OTRA').run()

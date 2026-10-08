@@ -35,6 +35,13 @@ def iniciar_interfaz():
     h1 { letter-spacing: -.025em; }
     [data-testid="stCaptionContainer"] { color: #a4adbb; }
     [data-testid="stExpander"] { border-color: #273142; border-radius: 14px; }
+    .st-key-lista_pegada [data-testid="stExpander"] {
+        background: #161e2a; border: 0; border-radius: 8px;
+    }
+    .st-key-lista_pegada [data-testid="stExpander"] > details > summary {
+        padding: .35rem .75rem; min-height: 38px; font-weight: 400;
+    }
+    .st-key-lista_pegada summary p { font-size: 14px; font-weight: 400; }
     [data-testid="stFileUploaderDropzone"] { background: #161e2a; border-radius: 14px; }
     .stButton button, .stDownloadButton button { border-radius: 10px; min-height: 44px; }
     .stButton button:focus-visible, .stDownloadButton button:focus-visible {
