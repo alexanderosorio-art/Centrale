@@ -9,6 +9,23 @@ from test_providers import excel, PLANTILLAS
 
 
 class AppTests(unittest.TestCase):
+    def test_clear_pasted_list(self):
+        source = Path(__file__).resolve().parents[1] / 'app.py'
+        app = AppTest.from_file(str(source), default_timeout=20).run()
+        self.assertTrue(app.button(key='limpiar_lista_pegada').disabled)
+        app.selectbox(key='proveedor_lista').select('Intcomex').run()
+        app.text_area(key='texto_ingram').set_value('SKU\tPrecio\tStock\nA\t12,5\t3').run()
+        app.button(key='procesar_listas').click().run()
+        self.assertIn('lote', app.session_state)
+        memoria = app.session_state['formatos_pegados'].copy()
+        app.button(key='limpiar_lista_pegada').click().run()
+        self.assertFalse(app.exception)
+        self.assertEqual(app.text_area(key='texto_ingram').value, '')
+        self.assertNotIn('lote', app.session_state)
+        self.assertEqual(app.selectbox(key='proveedor_lista').value, 'Intcomex')
+        self.assertEqual(app.session_state['formatos_pegados'], memoria)
+        self.assertTrue(app.button(key='limpiar_lista_pegada').disabled)
+
     def test_upload_process_and_reset(self):
         source = Path(__file__).resolve().parents[1] / 'app.py'
         wrapper = f'''import streamlit as st
@@ -23,12 +40,12 @@ with patch('streamlit.file_uploader', return_value=st.session_state.get('_files'
         app.run()
         self.assertEqual(app.selectbox[0].value, 'Intcomex')
         self.assertEqual(app.selectbox[1].value, 'USD')
-        app.button[0].click().run()
+        app.button(key='procesar_listas').click().run()
         self.assertFalse(app.exception)
         self.assertEqual(len(app.session_state['lote'][1]), 1)
         app.selectbox[1].select('CLP').run()
         self.assertNotIn('lote', app.session_state)
-        app.button[0].click().run()
+        app.button(key='procesar_listas').click().run()
         self.assertEqual(app.session_state['lote'][1].iloc[0].currency, 'CLP')
         app.session_state['_files'] = [excel(PLANTILLAS['Ingram'], [['A', 12, 3]], name='Ingram.xlsx', second_sheet=True)]
         app.run()
@@ -36,7 +53,7 @@ with patch('streamlit.file_uploader', return_value=st.session_state.get('_files'
         self.assertNotIn('lote', app.session_state)
         self.assertEqual(app.multiselect[0].value, [])
         app.multiselect[0].select('MATERIAL').select('OTRA').run()
-        app.button[0].click().run()
+        app.button(key='procesar_listas').click().run()
         self.assertFalse(app.exception)
         self.assertEqual(len(app.session_state['lote'][1]), 2)
 

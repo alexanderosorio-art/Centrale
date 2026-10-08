@@ -89,8 +89,19 @@ if archivos:
         )
     else:
         st.info('No se pudo identificar un mismo mayorista en todos los nombres. Selecciona el proveedor manualmente.')
+def limpiar_lista_pegada():
+    """Limpiar la entrada y su revisión, conservando archivos y formatos aprendidos."""
+    st.session_state['texto_ingram'] = ''
+    for clave in list(st.session_state):
+        if clave.startswith(('revision_texto_', 'esquema_', 'manual_', 'duda_')):
+            del st.session_state[clave]
+    st.session_state.pop('lote', None)
+
+
 with st.expander('Pegar lista — cualquier mayorista'):
     texto = st.text_area('Pega la lista con sus encabezados', height=180, key='texto_ingram')
+    st.button('Limpiar lista pegada', key='limpiar_lista_pegada',
+              on_click=limpiar_lista_pegada, disabled=not texto.strip())
     if texto.strip():
         from pasted_lists import interpretar_texto, archivo_mapeado, detectar_columnas, ALIAS
         texto_pendiente = True
@@ -236,7 +247,7 @@ if st.session_state.get('firma_lote') != firma:
         if clave.startswith(('elegir_sku_', 'resolver_conflicto_')):
             del st.session_state[clave]
 
-if st.button('Procesar listas'):
+if st.button('Procesar listas', key='procesar_listas'):
     if texto_pendiente:
         st.warning('Revisa las columnas dudosas de la lista pegada antes de procesar.')
     elif not archivos:
