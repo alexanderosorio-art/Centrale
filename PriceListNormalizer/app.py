@@ -56,6 +56,43 @@ if modo == 'Inventario de marca (solo stock)':
     st.stop()
 archivos = st.file_uploader('Subir listas de precios del mismo proveedor',
                            type=['xlsx', 'xls', 'csv', 'pdf'], accept_multiple_files=True)
+archivos = list(archivos)
+texto_pendiente = False
+with st.expander('Pegar lista — cualquier mayorista'):
+    st.caption('Acepta filas copiadas de Excel (tabuladas), tablas Markdown o texto vertical. Puedes combinarlo con archivos del mismo mayorista. Elige explícitamente las columnas; no se infiere la marca ni se elige un descuento automáticamente.')
+    usar_texto = st.checkbox('Incluir una lista pegada', key='usar_texto_ingram')
+    if usar_texto:
+        from pasted_lists import interpretar_texto, archivo_mapeado, COLUMNAS
+        esquema_vertical = st.text_input('Para texto vertical: encabezados en orden, separados por punto y coma', value='; '.join(COLUMNAS))
+        texto_ingram = st.text_area('Pega aquí la lista completa, incluidos los encabezados', height=240, key='texto_ingram')
+        texto_pendiente = True
+        try:
+            esquema = [c.strip() for c in esquema_vertical.split(';') if c.strip()]
+            tabla_texto = interpretar_texto(texto_ingram, esquema)
+            huella_texto = hashlib.sha256(texto_ingram.encode('utf-8')).hexdigest()
+            st.caption('Revisa los campos. Puedes corregir la tabla antes de procesar.')
+            tabla_corregida = st.data_editor(tabla_texto, hide_index=True, num_rows='fixed', key='revision_texto_' + huella_texto)
+            alias = {'provider_code': ('MATERIAL/SKU', 'SKU', 'CODIGO', 'CODIGO GTC', 'CODIGOARTICULO'),
+                     'currency_unaware_cost_neto': ('PRECIO', 'COSTO NETO USD', 'PRECIO VENTA', 'PRECIO LISTA (SIN IVA)'),
+                     'quantity': ('STOCK DISPONIBLE', 'STOCK', 'CANTIDAD', 'BOH', 'CANALES'),
+                     'mpn': ('PART_NUMBER', 'PART NUMBER', 'PN', 'MPN', 'MODELO'),
+                     'name': ('MKT NAME', 'DESCRIPCION', 'NOMBRE', 'PRODUCT NAME'),
+                     'brand': ('MARCA', 'BRAND')}
+            mapeo = {}
+            for destino, opciones in alias.items():
+                columnas_texto = ['Sin dato'] + list(tabla_corregida.columns)
+                sugerida = next((c for c in tabla_corregida.columns if normalizar_columna(c) in opciones), 'Sin dato')
+                elegida = st.selectbox('Columna para ' + destino, columnas_texto, index=columnas_texto.index(sugerida), key='mapear_' + destino + huella_texto)
+                mapeo[destino] = None if elegida == 'Sin dato' else elegida
+            st.caption('Selecciona el costo que corresponda, no PVP ni precios por volumen salvo que quieras usarlos. VDR_NAME no se asigna como marca automáticamente.')
+            archivo_texto = archivo_mapeado(tabla_corregida, mapeo)
+            firma_revision = hashlib.sha256(archivo_texto.getvalue()).hexdigest()
+            confirmado_texto = st.checkbox('Confirmo las filas y el mapeo; elegiré el mayorista y la moneda abajo', key='confirmar_texto_' + firma_revision)
+            if confirmado_texto:
+                archivos.append(archivo_texto)
+                texto_pendiente = False
+        except ValueError as error:
+            st.warning(str(error))
 import_hash_archivos = tuple(hashlib.sha256(a.getvalue()).hexdigest() for a in archivos)
 firma_deteccion = tuple((a.name, huella) for a, huella in zip(archivos, import_hash_archivos))
 proveedor_detectado, estado_deteccion = detectar_proveedor_lote([a.name for a in archivos])
@@ -189,13 +226,15 @@ if st.session_state.get('firma_lote') != firma:
             del st.session_state[clave]
 
 if st.button('Procesar listas'):
-    if not archivos:
+    if texto_pendiente:
+        st.warning('Revisa y confirma la lista pegada antes de procesar.')
+    elif not archivos:
         st.warning('Primero debes subir una o más listas de precios.')
     elif proveedor == 'Seleccionar...':
         st.warning('Primero debes seleccionar un proveedor.')
     elif not proveedor_confirmado:
         st.warning('Revisa los archivos y confirma que pertenecen al proveedor seleccionado antes de procesar.')
-    elif proveedor not in PROVEEDORES_CONFIGURADOS:
+    elif proveedor not in PROVEEDORES_CONFIGURADOS and any(not hasattr(a, 'tabla_pegada') for a in archivos):
         st.warning(
             f'{proveedor} todavía no tiene reglas de procesamiento configuradas. '
             'No se generó ningún resultado.'

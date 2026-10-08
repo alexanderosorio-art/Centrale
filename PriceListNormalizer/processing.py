@@ -1,7 +1,7 @@
 """Detección del proveedor y procesamiento de lotes con errores por archivo."""
 import re
 import pandas as pd
-from common import normalizar_columna, excluir_cajas_abiertas
+from common import normalizar_columna, excluir_cajas_abiertas, normalizar_productos
 from providers import REGISTRO
 
 def detectar_proveedores_archivo(nombre):
@@ -38,6 +38,20 @@ def procesar_archivos(archivos, fecha, proveedor="Intcomex", moneda_valor=None, 
         fila = {"Archivo": nombre, "Leídos": 0, "Válidos": 0,
                 "Descartados": 0, "Estado": "", "Detalle": ""}
         try:
+            if hasattr(archivo, 'tabla_pegada'):
+                tabla = excluir_cajas_abiertas(archivo.tabla_pegada)
+                base = tabla.rename(columns={'provider_code': 'SKU', 'currency_unaware_cost_neto': 'venta neto usd', 'quantity': 'stock actual'})
+                resultado = normalizar_productos(base, fecha)
+                for c in ('mpn', 'name', 'brand'):
+                    resultado[c] = tabla.loc[resultado.index, c]
+                resultado['currency'] = moneda_valor
+                fila.update({'Leídos': len(archivo.tabla_pegada), 'Válidos': len(resultado),
+                    'Descartados': len(archivo.tabla_pegada)-len(resultado), 'Estado': 'Procesado',
+                    'Detalle': 'Texto pegado: mapeo y moneda confirmados por el usuario. No se aplican reglas automáticas de precio por proveedor.'})
+                resultado['Archivo de origen'] = nombre
+                resultados.append(resultado)
+                resumen.append(fila)
+                continue
             modulo = REGISTRO.get(proveedor)
             if modulo is None or modulo.leer is None:
                 raise ValueError(f'{proveedor} todavía no tiene reglas de procesamiento configuradas.')
