@@ -211,6 +211,22 @@ class ProviderTests(unittest.TestCase):
         self.assertEqual(df.iloc[0].mpn, 'PN-A')
         self.assertTrue((df.brand == '').all())
 
+    def test_intcomex_logitech_csv(self):
+        text = ('Lista de precios,,,,,,,\n'
+                'SKU XCL,Logitech Part Number,DESCRIPCIÓN, STOCK , COSTO NETO USD ,PVP SUGERIDO,COSTO NETO USD VOLUMEN,VOLUMEN MINIMO\n'
+                'ID010LOG58,910-004053,Mouse M90," 1,019 ",3.6,5390,3.5,90\n'
+                'B,PN-B,Sin stock,0,10,20,9,5\n'
+                'C,PN-C,BAD BOX,1,10,20,9,5\n'
+                'D,PN-D,Comentario,30 DIAS,10,20,9,5\n')
+        f = BytesIO(text.encode('utf-8-sig')); f.name = 'Logitech.csv'
+        summary, df = procesar_archivos([f], FECHA, 'Intcomex')
+        self.assertEqual(summary.iloc[0]['Estado'], 'Procesado')
+        self.assertEqual(len(df), 1)
+        self.assertEqual(df.iloc[0].quantity, 1019)
+        self.assertEqual(df.iloc[0].currency_unaware_cost_neto, 3.6)
+        self.assertEqual(df.iloc[0].mpn, '910-004053')
+        self.assertEqual(df.iloc[0].brand, '')
+
     def test_gtc_volume_and_ean(self):
         headers = ['CODIGO GTC', 'EAN', 'DESCRIPCION', 'STOCK', 'NETO USD', 'OFERTA NETO USD', 'OBS']
         rows = [['A', '123456', 'Producto', 358, 46, 43.5, 'PRECIO X COMPRA DE 150 UNIDADES O MAS'],

@@ -13,6 +13,7 @@ HIKVISION = {'SKU', 'PART #', 'DESCRIPCION', 'DPV', 'UNIT PRICE$'}
 PRECIOS_TOP = {'SKU', 'PART NUMBER MARCA', 'PRODUCT NAME', 'STOCK', 'PRECIOS TOP'}
 DELL = {'SKU', 'PN DELL', 'DESCRIPCION', 'PRECIO USD', 'STOCK REF'}
 HP_SEMANAL = {'LOCAL SKU', 'MPN', 'PRODUCT NAME (LOCAL)', 'STOCK', 'PRECIO NORMAL'}
+LOGITECH = {'SKU XCL', 'LOGITECH PART NUMBER', 'DESCRIPCION', 'STOCK', 'COSTO NETO USD'}
 
 
 def leer_intcomex_xlsx(archivo):
@@ -226,6 +227,27 @@ def procesar_intcomex_hp_semanal(df, fecha):
     return resultado
 
 
+def procesar_intcomex_logitech(df, fecha):
+    cols = [normalizar_texto_columna(c) for c in df.columns]
+    if any(cols.count(c) != 1 for c in LOGITECH):
+        raise ValueError('Intcomex Logitech: columnas requeridas duplicadas.')
+    def campo(c):
+        return df.iloc[:, cols.index(c)]
+    def cantidad(v):
+        texto = str(v).strip()
+        if re.fullmatch(r'\d{1,3}(?:,\d{3})+', texto):
+            texto = texto.replace(',', '')
+        if not re.fullmatch(r'\d+(?:\.0+)?\s*\+?', texto):
+            return None
+        return pd.to_numeric(texto.rstrip('+').strip(), errors='coerce')
+    base = pd.DataFrame({'SKU': campo('SKU XCL'), 'venta neto usd': campo('COSTO NETO USD'),
+                         'stock actual': campo('STOCK').map(cantidad)}, index=df.index)
+    resultado = normalizar_productos(base, fecha)
+    for destino, origen in [('mpn', 'LOGITECH PART NUMBER'), ('name', 'DESCRIPCION')]:
+        resultado[destino] = campo(origen).loc[resultado.index].fillna('').astype(str).str.strip()
+    return resultado
+
+
 def leer(archivo, fecha, moneda, permitir_pn=False, hojas_seleccionadas=None):
     if archivo.name.lower().endswith('.pdf'):
         return leer_tablas(archivo, fecha, moneda, permitir_pn, hojas_seleccionadas, reglas=REGLAS)
@@ -242,7 +264,10 @@ def leer(archivo, fecha, moneda, permitir_pn=False, hojas_seleccionadas=None):
         archivo.seek(0)
         df = pd.read_excel(archivo, header=encabezado)
     columnas = {normalizar_texto_columna(c) for c in df.columns}
-    if HP_SEMANAL.issubset(columnas):
+    if LOGITECH.issubset(columnas):
+        resultado = procesar_intcomex_logitech(df, fecha)
+        return resultado, len(df), 'Intcomex Logitech: COSTO NETO USD; no se usa PVP ni costo por volumen. Stock con coma de miles. Marca no inferida.'
+    elif HP_SEMANAL.issubset(columnas):
         resultado = procesar_intcomex_hp_semanal(df, fecha)
         return resultado, len(df), 'Intcomex HP: precio promocional con respaldo normal. Solo Stock; Llegada no se suma. Marca no inferida.'
     elif DELL.issubset(columnas):
