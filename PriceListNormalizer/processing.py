@@ -64,7 +64,8 @@ def procesar_archivos(archivos, fecha, proveedor="Intcomex", moneda_valor=None, 
             if antes != len(resultado):
                 detalle += f'. OPEN BOX/BAD BOX excluidos: {antes-len(resultado)}'
             # La elección del usuario prevalece; nunca convierte los importes.
-            resultado['currency'] = 'USD' if resultado.attrs.get('currency_policy') == 'USD_ONLY' else moneda_valor
+            if resultado.attrs.get('currency_policy') != 'SOURCE':
+                resultado['currency'] = 'USD' if resultado.attrs.get('currency_policy') == 'USD_ONLY' else moneda_valor
             fila.update({'Leídos': leidos, 'Válidos': len(resultado),
                          'Descartados': leidos-len(resultado), 'Estado': 'Procesado', 'Detalle': detalle})
             resultado['Archivo de origen'] = nombre

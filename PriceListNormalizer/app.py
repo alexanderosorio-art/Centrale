@@ -224,7 +224,7 @@ moneda_valor = st.selectbox(
     'Moneda de la lista', ['USD', 'CLP'],
     key=f'moneda_lista_{proveedor}',
     disabled=catalogo_nexsys,
-    help='Se aplica a todos los productos del lote, incluso si el encabezado indica otra moneda. No convierte los importes.',
+    help='Se aplica al lote, sin convertir importes. Excepciones: el catálogo Nexsys conserva USD; las plantillas Linksys y Cyber de Tecnoglobal conservan la moneda explícita del archivo.',
 )
 if proveedor == 'Kepler':
     if any('PREVENTA' in normalizar_columna(a.name) for a in archivos):
@@ -274,7 +274,8 @@ if st.button('Procesar listas', key='procesar_listas', type='primary',
 
 if 'lote' in st.session_state:
     resumen, combinado = st.session_state['lote']
-    st.info('Vigencia aplicada: ' + formatear_expiry_date(fecha))
+    vigencias = combinado['expiry_date'].dropna().unique() if not combinado.empty else []
+    st.info('Vigencia aplicada: ' + (', '.join(map(str, vigencias)) if len(vigencias) else formatear_expiry_date(fecha)))
     with st.expander('Detalle por archivo', expanded=(resumen['Estado'] == 'Error').any()):
         st.dataframe(resumen, hide_index=True)
         st.download_button('Descargar resumen CSV', resumen.to_csv(index=False).encode('utf-8-sig'),
