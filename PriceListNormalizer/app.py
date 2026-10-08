@@ -58,41 +58,7 @@ archivos = st.file_uploader('Subir listas de precios del mismo proveedor',
                            type=['xlsx', 'xls', 'csv', 'pdf'], accept_multiple_files=True)
 archivos = list(archivos)
 texto_pendiente = False
-with st.expander('Pegar lista — cualquier mayorista'):
-    st.caption('Acepta filas copiadas de Excel (tabuladas), tablas Markdown o texto vertical. Puedes combinarlo con archivos del mismo mayorista. Elige explícitamente las columnas; no se infiere la marca ni se elige un descuento automáticamente.')
-    usar_texto = st.checkbox('Incluir una lista pegada', key='usar_texto_ingram')
-    if usar_texto:
-        from pasted_lists import interpretar_texto, archivo_mapeado, COLUMNAS
-        esquema_vertical = st.text_input('Para texto vertical: encabezados en orden, separados por punto y coma', value='; '.join(COLUMNAS))
-        texto_ingram = st.text_area('Pega aquí la lista completa, incluidos los encabezados', height=240, key='texto_ingram')
-        texto_pendiente = True
-        try:
-            esquema = [c.strip() for c in esquema_vertical.split(';') if c.strip()]
-            tabla_texto = interpretar_texto(texto_ingram, esquema)
-            huella_texto = hashlib.sha256(texto_ingram.encode('utf-8')).hexdigest()
-            st.caption('Revisa los campos. Puedes corregir la tabla antes de procesar.')
-            tabla_corregida = st.data_editor(tabla_texto, hide_index=True, num_rows='fixed', key='revision_texto_' + huella_texto)
-            alias = {'provider_code': ('MATERIAL/SKU', 'SKU', 'CODIGO', 'CODIGO GTC', 'CODIGOARTICULO'),
-                     'currency_unaware_cost_neto': ('PRECIO', 'COSTO NETO USD', 'PRECIO VENTA', 'PRECIO LISTA (SIN IVA)'),
-                     'quantity': ('STOCK DISPONIBLE', 'STOCK', 'CANTIDAD', 'BOH', 'CANALES'),
-                     'mpn': ('PART_NUMBER', 'PART NUMBER', 'PN', 'MPN', 'MODELO'),
-                     'name': ('MKT NAME', 'DESCRIPCION', 'NOMBRE', 'PRODUCT NAME'),
-                     'brand': ('MARCA', 'BRAND')}
-            mapeo = {}
-            for destino, opciones in alias.items():
-                columnas_texto = ['Sin dato'] + list(tabla_corregida.columns)
-                sugerida = next((c for c in tabla_corregida.columns if normalizar_columna(c) in opciones), 'Sin dato')
-                elegida = st.selectbox('Columna para ' + destino, columnas_texto, index=columnas_texto.index(sugerida), key='mapear_' + destino + huella_texto)
-                mapeo[destino] = None if elegida == 'Sin dato' else elegida
-            st.caption('Selecciona el costo que corresponda, no PVP ni precios por volumen salvo que quieras usarlos. VDR_NAME no se asigna como marca automáticamente.')
-            archivo_texto = archivo_mapeado(tabla_corregida, mapeo)
-            firma_revision = hashlib.sha256(archivo_texto.getvalue()).hexdigest()
-            confirmado_texto = st.checkbox('Confirmo las filas y el mapeo; elegiré el mayorista y la moneda abajo', key='confirmar_texto_' + firma_revision)
-            if confirmado_texto:
-                archivos.append(archivo_texto)
-                texto_pendiente = False
-        except ValueError as error:
-            st.warning(str(error))
+formato_pegado = None
 import_hash_archivos = tuple(hashlib.sha256(a.getvalue()).hexdigest() for a in archivos)
 firma_deteccion = tuple((a.name, huella) for a, huella in zip(archivos, import_hash_archivos))
 proveedor_detectado, estado_deteccion = detectar_proveedor_lote([a.name for a in archivos])
@@ -123,6 +89,51 @@ if archivos:
         )
     else:
         st.info('No se pudo identificar un mismo mayorista en todos los nombres. Selecciona el proveedor manualmente.')
+with st.expander('Pegar lista — cualquier mayorista'):
+    texto = st.text_area('Pega la lista con sus encabezados', height=180, key='texto_ingram')
+    if texto.strip():
+        from pasted_lists import interpretar_texto, archivo_mapeado, detectar_columnas, ALIAS
+        texto_pendiente = True
+        huella = hashlib.sha256((proveedor + texto).encode('utf-8')).hexdigest()
+        with st.expander('Corregir columnas'):
+            esquema = st.text_input('Solo si falla el texto vertical: encabezados separados por punto y coma', key='esquema_' + huella)
+            manual = st.checkbox('Cambiar la asignación detectada', key='manual_' + huella)
+        try:
+            tabla = interpretar_texto(texto, [c.strip() for c in esquema.split(';') if c.strip()] or None)
+            formato = (proveedor, tuple(tabla.columns))
+            memoria = st.session_state.setdefault('formatos_pegados', {})
+            mapeo, dudas = detectar_columnas(tabla.columns, proveedor)
+            if formato in memoria:
+                mapeo, dudas = memoria[formato].copy(), {}
+            if manual:
+                with st.expander('Asignación manual', expanded=True):
+                    for destino in ALIAS:
+                        opciones = ['Sin dato'] + list(tabla.columns)
+                        actual = mapeo.get(destino) or 'Sin dato'
+                        valor = st.selectbox('Columna para ' + destino, opciones, index=opciones.index(actual), key='manual_map_' + destino + huella)
+                        mapeo[destino] = None if valor == 'Sin dato' else valor
+            else:
+                for destino, candidatos in dudas.items():
+                    opciones = ['Seleccionar...'] + (['Sin dato'] if destino in ('mpn', 'name', 'brand') else []) + candidatos
+                    valor = st.selectbox('¿Qué columna usar para ' + destino + '?', opciones, key='duda_' + destino + huella)
+                    mapeo[destino] = None if valor in ('Seleccionar...', 'Sin dato') else valor
+                    if valor == 'Sin dato':
+                        dudas[destino] = []
+            st.caption('Detectado: ' + ' · '.join(f'{k}: {v}' for k, v in mapeo.items() if v))
+            tabla = st.data_editor(tabla, hide_index=True, num_rows='fixed', key='revision_texto_' + huella)
+            pendientes = [k for k, candidatos in dudas.items() if candidatos and not mapeo.get(k)] if not manual else []
+            if pendientes:
+                st.warning('Resuelve las columnas dudosas antes de procesar. No se eligen precios ni marcas por suposición.')
+            else:
+                archivo_texto = archivo_mapeado(tabla, mapeo)
+                archivos.append(archivo_texto)
+                formato_pegado = (formato, mapeo.copy())
+                texto_pendiente = False
+                st.caption('Lista preparada. Pulsa Procesar listas abajo. Los formatos confirmados se recuerdan durante esta sesión.')
+        except ValueError as error:
+            st.warning(str(error))
+# La detección del proveedor usa solo archivos originales; el texto no altera la selección.
+import_hash_archivos = tuple(hashlib.sha256(a.getvalue()).hexdigest() for a in archivos)
 if proveedor in PROVEEDORES_SIN_REGLAS:
     st.info(getattr(REGISTRO[proveedor], 'AVISO_PENDIENTE',
         f'{proveedor}: esta opción ya está disponible, pero todavía no tiene reglas '
@@ -227,7 +238,7 @@ if st.session_state.get('firma_lote') != firma:
 
 if st.button('Procesar listas'):
     if texto_pendiente:
-        st.warning('Revisa y confirma la lista pegada antes de procesar.')
+        st.warning('Revisa las columnas dudosas de la lista pegada antes de procesar.')
     elif not archivos:
         st.warning('Primero debes subir una o más listas de precios.')
     elif proveedor == 'Seleccionar...':
@@ -246,6 +257,9 @@ if st.button('Procesar listas'):
             archivos, fecha, proveedor, moneda_valor, permitir_pn,
             hojas_por_archivo=hojas_por_archivo,
         )
+        if formato_pegado and not (st.session_state['lote'][0]['Estado'] == 'Error').any():
+            formato, mapeo = formato_pegado
+            st.session_state['formatos_pegados'][formato] = mapeo
 
 if 'lote' in st.session_state:
     resumen, combinado = st.session_state['lote']
