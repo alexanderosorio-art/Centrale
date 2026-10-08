@@ -8,11 +8,13 @@ from exports import generar_excel, boton_copiar_excel
 from processing import detectar_proveedor_lote, moneda_predeterminada, procesar_archivos
 from providers import PROVEEDORES_CONFIGURADOS, PROVEEDORES_SIN_REGLAS, OPCIONES_PROVEEDORES, REGISTRO
 from providers.nexsys import es_catalogo
+from ui import iniciar_interfaz, AYUDA_ARCHIVOS, ayuda_proveedor
 
+iniciar_interfaz()
 st.title('Price List Normalizer')
-st.write('Generador de listas de precios para carga al CRM')
-modo = st.radio('Tipo de procesamiento', ['Listas de precios', 'Inventario de marca (solo stock)'])
-st.caption('Se excluyen productos etiquetados OPEN BOX o BAD BOX de todas las listas.')
+st.caption('Ordena tus listas y prepara un único resultado para el CRM.')
+modo = st.radio('Tipo de procesamiento', ['Listas de precios', 'Inventario de marca (solo stock)'], horizontal=True,
+    help='Listas de precios incluye costos y stock. Inventario de marca prepara resultados separados sin completar precios ausentes. Siempre se excluyen OPEN BOX y BAD BOX.')
 if modo == 'Inventario de marca (solo stock)':
     from stock_reader import procesar_stock
     st.info('Resultados separados para Ingram y Compusoluciones. Se conservan las 10 columnas, sin completar precios, moneda, fecha ni otros datos ausentes. Esto no actualiza el CRM automáticamente.')
@@ -54,8 +56,9 @@ if modo == 'Inventario de marca (solo stock)':
                 with copia_stock:
                     boton_copiar_excel(final_stock)
     st.stop()
+st.subheader('1. Agrega tus listas')
 archivos = st.file_uploader('Subir listas de precios del mismo proveedor',
-                           type=['xlsx', 'xls', 'csv', 'pdf'], accept_multiple_files=True)
+                           type=['xlsx', 'xls', 'csv', 'pdf'], accept_multiple_files=True, help=AYUDA_ARCHIVOS)
 archivos = list(archivos)
 texto_pendiente = False
 formato_pegado = None
@@ -72,6 +75,7 @@ proveedor = st.selectbox(
     'Proveedor',
     OPCIONES_PROVEEDORES,
     key='proveedor_lista',
+    help=ayuda_proveedor(st.session_state.get('proveedor_lista')),
     on_change=lambda: st.session_state.update(confirmar_proveedor_archivos=False),
 )
 proveedor_confirmado = True
@@ -99,7 +103,9 @@ def limpiar_lista_pegada():
 
 
 with st.expander('Pegar lista — cualquier mayorista'):
-    texto = st.text_area('Pega la lista con sus encabezados', height=180, key='texto_ingram')
+    texto = st.text_area('Pega la lista con sus encabezados', height=180, key='texto_ingram',
+        placeholder='Copia una tabla de Excel, un correo o una lista con encabezados…',
+        help='Acepta tablas tabuladas, Markdown o texto vertical. Se combina con los archivos del mismo mayorista. Puedes corregir las columnas antes de procesar; los datos ausentes no se completan.')
     st.button('Limpiar lista pegada', key='limpiar_lista_pegada',
               on_click=limpiar_lista_pegada, disabled=not texto.strip())
     if texto.strip():
@@ -151,13 +157,10 @@ if proveedor in PROVEEDORES_SIN_REGLAS:
         'de lectura configuradas. Para evitar inventar o asignar mal datos, necesitamos '
         'revisar una lista de ejemplo antes de habilitar su procesamiento.'
     ))
-st.caption('Puedes seleccionar varios archivos. PDF: se recorren todas las páginas y se extraen tablas con texto seleccionable. Los PDF escaneados requieren OCR. Tecnoglobal, Nexsys, Ingram, Coimco y Fujicorp: se revisan las hojas elegidas. Intcomex y Kepler: primera hoja. '
-           'La consolidación CRM está disponible para los proveedores con reglas configuradas.')
 hojas_por_archivo = {}
 seleccion_hojas_incompleta = False
 if proveedor == 'Ingram' and archivos:
     st.subheader('Hojas del Excel')
-    st.caption('Elige una o varias hojas de cada archivo. No hay nombres ni hojas obligatorias; solo se procesarán las que selecciones.')
     for indice_archivo, archivo in enumerate(archivos):
         if not archivo.name.lower().endswith(('.xlsx', '.xls')):
             continue
@@ -171,6 +174,7 @@ if proveedor == 'Ingram' and archivos:
         elegidas = st.multiselect(
             f'Hojas a procesar — {archivo.name}', options=nombres_hojas,
             default=[], key=f'hojas_ingram_libres_{huella}',
+            help='Elige una o varias hojas. Solo se procesan las elegidas; no hay nombres ni hojas obligatorias.',
         )
         hojas_por_archivo[indice_archivo] = list(elegidas)
         if not elegidas:
@@ -183,7 +187,6 @@ if proveedor == 'Ingram' and archivos:
                 st.dataframe(vista_previa, hide_index=True)
                 archivo.seek(0)
 if proveedor == 'SolutionBox':
-    st.caption('SolutionBox: el PN se usa como código de proveedor y mpn. La marca se copia solo de una columna MARCA. Se excluyen productos por encargo o sin cantidad disponible.')
     for indice_archivo, archivo in enumerate(archivos):
         if not archivo.name.lower().endswith(('.xlsx', '.xls')):
             continue
@@ -192,6 +195,7 @@ if proveedor == 'SolutionBox':
             elegidas = st.multiselect(
                 f'Hojas a procesar — {archivo.name}', options=nombres_hojas,
                 default=nombres_hojas,
+                help='Puedes seleccionar varias hojas; se procesarán únicamente las elegidas.',
                 key=f'hojas_solutionbox_{indice_archivo}_{import_hash_archivos[indice_archivo]}',
             )
             hojas_por_archivo[indice_archivo] = list(elegidas)
@@ -201,12 +205,6 @@ if proveedor == 'SolutionBox':
         except Exception as error:
             st.warning(f'No se pudieron leer las hojas de {archivo.name}: {error}')
             seleccion_hojas_incompleta = True
-if proveedor == 'Demco Ltda.':
-    st.caption('Demco: se revisan todas las hojas. Se usa Código Interno como código de proveedor, Número de Parte como PN y Precio Neto como costo.')
-if proveedor == 'Facciatech':
-    st.caption('Facciatech: solo se procesa la hoja Resumen. Se usa Precio Neto detalle, ID como código y Part Number como PN. Moneda predeterminada: CLP.')
-if proveedor == 'Gtc ribbon':
-    st.caption('Gtc ribbon: CODIGO GTC como código y PART NUMBER como PN cuando exista. EAN no reemplaza el PN. Las ofertas condicionadas a volumen se ignoran; se usa el precio normal disponible. La marca solo se copia de una columna MARCA.')
 if proveedor == 'Gerona':
     st.warning('Gerona: este catálogo no informa stock; quantity queda vacío, no en cero. Se usa Precio Lista (sin IVA), CodigoSKU como código y Modelo como PN. Confirma que el CRM acepta cantidad vacía antes de cargar.')
 catalogo_nexsys = False
@@ -220,6 +218,7 @@ if proveedor == 'Nexsys':
     if catalogo_nexsys:
         st.info('Catálogo Hardware Nexsys: solo hojas autorizadas y productos en USD. Se excluyen EPSON y filas CLP; no se convierten precios. HP Poly incluye promociones y Lenovo limita el stock promocional a sus unidades disponibles. Jabra usa el precio certificado autorizado.')
         st.session_state[f'moneda_lista_{proveedor}'] = 'USD'
+st.subheader('2. Revisa moneda y vigencia')
 st.session_state.setdefault(f'moneda_lista_{proveedor}', moneda_predeterminada(proveedor))
 moneda_valor = st.selectbox(
     'Moneda de la lista', ['USD', 'CLP'],
@@ -228,11 +227,11 @@ moneda_valor = st.selectbox(
     help='Se aplica a todos los productos del lote, incluso si el encabezado indica otra moneda. No convierte los importes.',
 )
 if proveedor == 'Kepler':
-    st.caption('Kepler: se usa el precio normal de la lista.')
     if any('PREVENTA' in normalizar_columna(a.name) for a in archivos):
         st.warning('Lista de preventa: se copiarán las cantidades indicadas en el archivo. No representan stock inmediato y no se asignará un plazo de entrega si no está informado.')
 permitir_pn = proveedor == 'Nexsys'  # Equivalencia confirmada por el usuario.
-fecha = st.date_input('Fecha de vigencia', value=calcular_expiry_date())
+fecha = st.date_input('Fecha de vigencia', value=calcular_expiry_date(),
+    help='Por defecto: hoy más 14 días, sin superar el fin de mes. La hora aplicada es 12:00. Puedes cambiar la fecha.')
 
 # Evitar que se descarguen resultados de archivos, hojas, proveedor o fecha anteriores.
 firma = (
@@ -247,7 +246,8 @@ if st.session_state.get('firma_lote') != firma:
         if clave.startswith(('elegir_sku_', 'resolver_conflicto_')):
             del st.session_state[clave]
 
-if st.button('Procesar listas', key='procesar_listas'):
+if st.button('Procesar listas', key='procesar_listas', type='primary',
+    help='Combina las listas del mayorista seleccionado. Los SKU con diferencias se pueden revisar en el resultado.'):
     if texto_pendiente:
         st.warning('Revisa las columnas dudosas de la lista pegada antes de procesar.')
     elif not archivos:
@@ -275,10 +275,10 @@ if st.button('Procesar listas', key='procesar_listas'):
 if 'lote' in st.session_state:
     resumen, combinado = st.session_state['lote']
     st.info('Vigencia aplicada: ' + formatear_expiry_date(fecha))
-    st.subheader('Resumen por archivo')
-    st.dataframe(resumen, hide_index=True)
-    st.download_button('Descargar resumen CSV', resumen.to_csv(index=False).encode('utf-8-sig'),
-                       file_name='Resumen de listas.csv', mime='text/csv')
+    with st.expander('Detalle por archivo', expanded=(resumen['Estado'] == 'Error').any()):
+        st.dataframe(resumen, hide_index=True)
+        st.download_button('Descargar resumen CSV', resumen.to_csv(index=False).encode('utf-8-sig'),
+                           file_name='Resumen de listas.csv', mime='text/csv')
     errores = (resumen['Estado'] == 'Error').sum()
     if errores:
         st.warning(f'{errores} archivo(s) no pudieron procesarse. El consolidado solo incluye los archivos procesados.')
@@ -345,14 +345,16 @@ if 'lote' in st.session_state:
                 'Hay provider_code repetidos después de las correcciones. Ajusta los códigos '
                 'en las tablas de revisión antes de descargar o copiar.'
             )
-        st.subheader('Consolidado CRM')
+        st.subheader('3. Tu resultado para el CRM')
         st.write(f'{len(final)} productos listos para descargar')
         st.dataframe(preparar_vista(final), hide_index=True)
         if not final.empty and not codigos_repetidos.any():
-            col_descarga, col_copiar = st.columns([2, 1])
+            col_descarga, col_copiar = st.columns(2)
             with col_descarga:
                 st.download_button('Descargar archivo listo para CRM', generar_excel(final),
                     file_name='Directo para cargar al CRM.xlsx',
+                    use_container_width=True,
+                    help='Descarga las 10 columnas del CRM con encabezados. Los SKU sin resolver quedan fuera.',
                     mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
             with col_copiar:
                 boton_copiar_excel(final)

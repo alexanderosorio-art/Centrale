@@ -9,6 +9,16 @@ from test_providers import excel, PLANTILLAS
 
 
 class AppTests(unittest.TestCase):
+    def test_contextual_help_and_short_interface(self):
+        source = Path(__file__).resolve().parents[1] / 'app.py'
+        app = AppTest.from_file(str(source), default_timeout=20).run()
+        self.assertFalse(app.exception)
+        self.assertIn('PDF', app.file_uploader[0].proto.help)
+        self.assertFalse(any('Puedes seleccionar varios archivos.' in c.value for c in app.caption))
+        app.selectbox(key='proveedor_lista').select('Facciatech').run()
+        self.assertIn('Precio Neto detalle', app.selectbox(key='proveedor_lista').proto.help)
+        self.assertEqual(app.button(key='procesar_listas').proto.type, 'primary')
+
     def test_clear_pasted_list(self):
         source = Path(__file__).resolve().parents[1] / 'app.py'
         app = AppTest.from_file(str(source), default_timeout=20).run()

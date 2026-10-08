@@ -125,10 +125,15 @@ def boton_copiar_excel(df):
     html = json.dumps(generar_html_copia_excel(df), ensure_ascii=False).replace("</", "<\\/")
     components.html(
         f"""
-        <button id="copiar-excel" type="button" style="
-            width:100%; min-height:42px; padding:0.4rem 0.75rem;
-            border:1px solid rgba(250,250,250,.2); border-radius:.5rem;
-            background:#262730; color:#fafafa; font:inherit; cursor:pointer;
+        <style>
+            body {{ margin:0; font-family:Arial,sans-serif; }}
+            #copiar-excel:hover {{ border-color:#a9c3ea; background:#1f3a63; }}
+            #copiar-excel:focus-visible {{ outline:2px solid #a9c3ea; outline-offset:-3px; }}
+        </style>
+        <button id="copiar-excel" type="button" title="Copia solo los datos, sin encabezados. Pega en la fila 2 de tu Excel, conservando el orden de las 10 columnas." style="
+            width:100%; min-height:44px; padding:0.4rem 0.75rem;
+            border:1px solid #273142; border-radius:10px;
+            background:#161e2a; color:#f1f0ec; font:400 15px Arial,sans-serif; cursor:pointer;
         ">Copiar para Excel</button>
         <script>
             const html = {html};
