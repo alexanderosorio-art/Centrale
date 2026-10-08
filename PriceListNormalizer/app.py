@@ -13,8 +13,9 @@ from ui import iniciar_interfaz, AYUDA_ARCHIVOS, ayuda_proveedor
 iniciar_interfaz()
 st.title('Price List Normalizer')
 st.caption('Ordena tus listas y prepara un único resultado para el CRM.')
-modo = st.selectbox('Tipo de procesamiento', ['Listas de precios', 'Lista de stock'], key='tipo_procesamiento',
-    help='Listas de precios incluye costos y stock. Lista de stock prepara resultados separados sin completar precios ausentes. Siempre se excluyen OPEN BOX y BAD BOX.')
+with st.container(key='modo_discreto'):
+    modo = st.selectbox('Tipo de procesamiento', ['Listas de precios', 'Lista de stock'], key='tipo_procesamiento',
+        help='Listas de precios incluye costos y stock. Lista de stock prepara resultados separados sin completar precios ausentes. Siempre se excluyen OPEN BOX y BAD BOX.')
 if modo == 'Lista de stock':
     from stock_reader import procesar_stock
     st.info('Resultados separados para Ingram y Compusoluciones. Se conservan las 10 columnas, sin completar precios, moneda, fecha ni otros datos ausentes. Esto no actualiza el CRM automáticamente.')

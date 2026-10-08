@@ -35,13 +35,32 @@ def iniciar_interfaz():
     h1 { letter-spacing: -.025em; }
     [data-testid="stCaptionContainer"] { color: #a4adbb; }
     [data-testid="stExpander"] { border-color: #273142; border-radius: 14px; }
-    .st-key-lista_pegada [data-testid="stExpander"] {
-        background: #161e2a; border: 0; border-radius: 8px;
+    .st-key-modo_discreto [data-baseweb="select"] > div,
+    .st-key-lista_pegada [data-testid="stExpander"],
+    .st-key-lista_pegada details {
+        background: rgba(22,30,42,.35) !important;
+        border: 0 !important; border-radius: 6px !important;
     }
-    .st-key-lista_pegada [data-testid="stExpander"] > details > summary {
-        padding: .35rem .75rem; min-height: 38px; font-weight: 400;
+    .st-key-modo_discreto [data-baseweb="select"] > div {
+        min-height: 34px !important;
     }
-    .st-key-lista_pegada summary p { font-size: 14px; font-weight: 400; }
+    .st-key-modo_discreto [data-baseweb="select"] > div > div {
+        padding-top: 0 !important; padding-bottom: 0 !important;
+    }
+    .st-key-lista_pegada summary {
+        padding: .2rem .65rem !important; min-height: 34px !important;
+        font-weight: 400;
+    }
+    .st-key-modo_discreto [data-baseweb="select"],
+    .st-key-lista_pegada summary p { font-size: 14px; font-weight: 400; color: #a4adbb; }
+    .st-key-modo_discreto [data-testid="stWidgetLabel"] p { font-size: 13px; color: #a4adbb; }
+    .st-key-lista_pegada [data-testid="stExpander"]:hover,
+    .st-key-modo_discreto [data-baseweb="select"] > div:hover {
+        background: rgba(22,30,42,.6) !important;
+    }
+    .st-key-lista_pegada summary:focus-visible {
+        outline: 2px solid #a9c3ea; outline-offset: 2px;
+    }
     [data-testid="stFileUploaderDropzone"] { background: #161e2a; border-radius: 14px; }
     .stButton button, .stDownloadButton button { border-radius: 10px; min-height: 44px; }
     .stButton button:focus-visible, .stDownloadButton button:focus-visible {
