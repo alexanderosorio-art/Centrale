@@ -85,5 +85,41 @@ def leer_solutionbox(archivo, fecha, moneda, hojas_seleccionadas=None):
     return pd.concat(salida, ignore_index=True), leidos, detalle
 
 
+def leer_solutionbox_pdf(archivo, fecha, moneda):
+    import pdfplumber
+    salida, leidos = [], 0
+    archivo.seek(0)
+    with pdfplumber.open(archivo) as documento:
+        for pagina in documento.pages:
+            for tabla in pagina.extract_tables():
+                if not tabla:
+                    continue
+                encabezado = [normalizar_texto_columna(v) for v in tabla[0]]
+                # En esta plantilla el encabezado se extrae como celda combinada.
+                if encabezado == ['STOCK SKU DESCRIPCION PRECIO UNITARIO', 'NONE', 'NONE', 'NONE']:
+                    encabezado = ['STOCK', 'SKU', 'DESCRIPCION', 'PRECIO UNITARIO']
+                if encabezado != ['STOCK', 'SKU', 'DESCRIPCION', 'PRECIO UNITARIO']:
+                    continue
+                if any(len(fila) != 4 for fila in tabla[1:]):
+                    raise ValueError('SolutionBox PDF: cambió la estructura de la tabla; revisa las columnas.')
+                datos = pd.DataFrame(tabla[1:], columns=encabezado)
+                leidos += len(datos)
+                stock = datos['STOCK'].astype(str).str.strip()
+                stock = pd.to_numeric(stock.where(stock.str.fullmatch(r'\d+\+?')).str.rstrip('+'), errors='coerce')
+                base = pd.DataFrame({'SKU': datos['SKU'],
+                    'venta neto usd': datos['PRECIO UNITARIO'].map(limpiar_numero), 'stock actual': stock})
+                result = normalizar_productos(base, fecha)
+                result['name'] = datos.loc[result.index, 'DESCRIPCION'].fillna('').astype(str).str.strip()
+                result['currency'] = moneda
+                # No hay columna PN ni marca: no se deducen del logo o del SKU.
+                salida.append(result)
+    archivo.seek(0)
+    if not salida:
+        raise ValueError('SolutionBox PDF: no hay tabla compatible STOCK, SKU, DESCRIPCION, precio unitario; un PDF escaneado requiere OCR.')
+    return pd.concat(salida, ignore_index=True), leidos, 'PDF SolutionBox: SKU, descripción, stock y precio unitario. No se infiere PN ni marca.'
+
+
 def leer(archivo, fecha, moneda, permitir_pn=False, hojas_seleccionadas=None):
+    if archivo.name.lower().endswith('.pdf'):
+        return leer_solutionbox_pdf(archivo, fecha, moneda)
     return leer_solutionbox(archivo, fecha, moneda, hojas_seleccionadas)
