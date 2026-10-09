@@ -60,6 +60,10 @@ def procesar_kepler(df, fecha, nombre, moneda_valor):
             if destino == 'name':
                 valores = valores.str.replace(r'\s*[\r\n]+\s*', ' ', regex=True)
             resultado[destino] = valores.replace({'nan': '', 'None': ''})
+    # Equivalencia PN/código confirmada por el usuario para Kepler.
+    # Una columna PN explícita siempre prevalece, incluso si tiene vacíos.
+    if not any(normalizar_texto_columna(c) in campos_kepler['mpn'] for c in df.columns):
+        resultado['mpn'] = resultado['provider_code']
     return resultado
 
 
