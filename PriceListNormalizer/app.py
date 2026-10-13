@@ -278,6 +278,10 @@ if 'lote' in st.session_state:
     resumen, combinado = st.session_state['lote']
     vigencias = combinado['expiry_date'].dropna().unique() if not combinado.empty else []
     st.info('Vigencia aplicada: ' + (', '.join(map(str, vigencias)) if len(vigencias) else formatear_expiry_date(fecha)))
+    if len(vigencias):
+        from datetime import datetime
+        if any(datetime.strptime(str(v), '%d-%m-%Y  %H:%M').date() < datetime.now().date() for v in vigencias):
+            st.warning('El resultado contiene una lista vencida. Se conservó la fecha del proveedor; confirma su vigencia antes de cargarla al CRM.')
     with st.expander('Detalle por archivo', expanded=(resumen['Estado'] == 'Error').any()):
         st.dataframe(resumen, hide_index=True)
         st.download_button('Descargar resumen CSV', resumen.to_csv(index=False).encode('utf-8-sig'),

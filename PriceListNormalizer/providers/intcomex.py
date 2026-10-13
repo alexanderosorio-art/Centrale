@@ -2,6 +2,7 @@
 from table_reader import ReglasTabla, leer_tablas
 import pandas as pd
 import re
+from datetime import date
 from common import normalizar_productos, normalizar_texto_columna, limpiar_numero
 from file_readers import leer_csv, detectar_encabezado, leer_hoja_xlsx_con_datos, palabras_clave_encabezado, obtener_nombres_hojas
 
@@ -14,6 +15,7 @@ PRECIOS_TOP = {'SKU', 'PART NUMBER MARCA', 'PRODUCT NAME', 'STOCK', 'PRECIOS TOP
 DELL = {'SKU', 'PN DELL', 'DESCRIPCION', 'PRECIO USD', 'STOCK REF'}
 HP_SEMANAL = {'LOCAL SKU', 'MPN', 'PRODUCT NAME (LOCAL)', 'STOCK', 'PRECIO NORMAL'}
 LOGITECH = {'SKU XCL', 'LOGITECH PART NUMBER', 'DESCRIPCION', 'STOCK', 'COSTO NETO USD'}
+CLIENTES_ESTRATEGICOS = {'PRODUCT ID', 'MPN', 'PRODUCT NAME', 'MARCA', 'STOCK', 'PRECIO ESPECIAL NETO UNIT. CLIENTES ESTRATEGICOS'}
 
 
 def leer_intcomex_xlsx(archivo):
@@ -27,7 +29,8 @@ def leer_intcomex_xlsx(archivo):
                   or HIKVISION.issubset({normalizar_texto_columna(v) for v in fila})
                   or PRECIOS_TOP.issubset({normalizar_texto_columna(v) for v in fila})
                   or DELL.issubset({normalizar_texto_columna(v) for v in fila})
-                  or HP_SEMANAL.issubset({normalizar_texto_columna(v) for v in fila})]
+                  or HP_SEMANAL.issubset({normalizar_texto_columna(v) for v in fila})
+                  or CLIENTES_ESTRATEGICOS.issubset({normalizar_texto_columna(v) for v in fila})]
     if candidatos:
         encabezado = candidatos[0]
     else:
@@ -248,6 +251,32 @@ def procesar_intcomex_logitech(df, fecha):
     return resultado
 
 
+def procesar_clientes_estrategicos(df, fecha, nombre):
+    cols = [normalizar_texto_columna(c) for c in df.columns]
+    if any(cols.count(c) != 1 for c in CLIENTES_ESTRATEGICOS):
+        raise ValueError('Intcomex: encabezados de clientes estratégicos duplicados.')
+    meses = {'ENERO': 1, 'FEBRERO': 2, 'MARZO': 3, 'ABRIL': 4, 'MAYO': 5, 'JUNIO': 6,
+             'JULIO': 7, 'AGOSTO': 8, 'SEPTIEMBRE': 9, 'OCTUBRE': 10, 'NOVIEMBRE': 11, 'DICIEMBRE': 12}
+    vigencia = re.search(r'\bHASTA\s+(\d{1,2})\s+(?:DE\s+)?(' + '|'.join(meses) + r')\s+(?:DE\s+)?(\d{4})\b', normalizar_texto_columna(nombre))
+    if vigencia:
+        fecha = date(int(vigencia[3]), meses[vigencia[2]], int(vigencia[1]))
+    def campo(c):
+        return df.iloc[:, cols.index(c)]
+    base = pd.DataFrame({'SKU': campo('PRODUCT ID'),
+        'venta neto usd': campo('PRECIO ESPECIAL NETO UNIT. CLIENTES ESTRATEGICOS').map(limpiar_numero),
+        'stock actual': pd.to_numeric(campo('STOCK'), errors='coerce')}, index=df.index)
+    resultado = normalizar_productos(base, fecha)
+    def texto(v):
+        if pd.isna(v):
+            return ''
+        if isinstance(v, (int, float)) and not isinstance(v, bool) and float(v).is_integer():
+            return str(int(v))
+        return str(v).strip()
+    for destino, origen in [('mpn', 'MPN'), ('name', 'PRODUCT NAME'), ('brand', 'MARCA')]:
+        resultado[destino] = campo(origen).loc[resultado.index].map(texto)
+    return resultado
+
+
 def leer(archivo, fecha, moneda, permitir_pn=False, hojas_seleccionadas=None):
     if archivo.name.lower().endswith('.pdf'):
         return leer_tablas(archivo, fecha, moneda, permitir_pn, hojas_seleccionadas, reglas=REGLAS)
@@ -264,7 +293,10 @@ def leer(archivo, fecha, moneda, permitir_pn=False, hojas_seleccionadas=None):
         archivo.seek(0)
         df = pd.read_excel(archivo, header=encabezado)
     columnas = {normalizar_texto_columna(c) for c in df.columns}
-    if LOGITECH.issubset(columnas):
+    if CLIENTES_ESTRATEGICOS.issubset(columnas):
+        resultado = procesar_clientes_estrategicos(df, fecha, archivo.name)
+        return resultado, len(df), 'Intcomex: Product ID como código; precio especial Clientes Estratégicos. MPN, nombre y marca explícitos. Se conserva la vigencia indicada en el nombre del archivo, aunque esté vencida.'
+    elif LOGITECH.issubset(columnas):
         resultado = procesar_intcomex_logitech(df, fecha)
         return resultado, len(df), 'Intcomex Logitech: COSTO NETO USD; no se usa PVP ni costo por volumen. Stock con coma de miles. Marca no inferida.'
     elif HP_SEMANAL.issubset(columnas):
