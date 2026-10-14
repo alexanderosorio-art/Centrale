@@ -95,6 +95,24 @@ if archivos:
         )
     else:
         st.info('No se pudo identificar un mismo mayorista en todos los nombres. Selecciona el proveedor manualmente.')
+catalogos_temporales = {}
+if proveedor in ('Intcomex', 'Ingram', 'Tecnoglobal', 'Nexsys'):
+    base_codigos = st.file_uploader(
+        'Base privada de códigos (opcional)', type=['xlsx', 'xls', 'csv'],
+        key=f'catalogo_privado_{proveedor}',
+        help='Úsala cuando la lista no trae código del mayorista. Solo se usa en este proceso y no se guarda ni se publica.',
+    )
+    if base_codigos:
+        from catalog_lookup import leer_catalogo_subido
+        try:
+            # En la interfaz normal es un archivo; el adaptador de pruebas
+            # puede entregarlo como lista de un elemento.
+            if isinstance(base_codigos, list):
+                base_codigos = base_codigos[0]
+            catalogos_temporales[proveedor] = leer_catalogo_subido(proveedor, base_codigos)
+            st.caption('Base privada lista para este proceso. No se guardará en la aplicación.')
+        except ValueError as error:
+            st.warning(str(error))
 def limpiar_lista_pegada():
     """Limpiar la entrada y su revisión, conservando archivos y formatos aprendidos."""
     st.session_state['texto_ingram'] = ''
@@ -243,6 +261,7 @@ firma = (
     proveedor, moneda_valor, permitir_pn, str(fecha), proveedor_confirmado,
     tuple((a.name, import_hash_archivos[i]) for i, a in enumerate(archivos)),
     tuple((i, tuple(hojas)) for i, hojas in sorted(hojas_por_archivo.items())),
+    tuple((p, len(c)) for p, c in catalogos_temporales.items()),
 )
 if st.session_state.get('firma_lote') != firma:
     st.session_state.pop('lote', None)
@@ -272,6 +291,7 @@ if st.button('Procesar listas', key='procesar_listas', type='primary',
         st.session_state['lote'] = procesar_archivos(
             archivos, fecha, proveedor, moneda_valor, permitir_pn,
             hojas_por_archivo=hojas_por_archivo,
+            catalogos_temporales=catalogos_temporales,
         )
         if formato_pegado and not (st.session_state['lote'][0]['Estado'] == 'Error').any():
             formato, mapeo = formato_pegado

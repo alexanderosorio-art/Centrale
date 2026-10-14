@@ -3,6 +3,7 @@ import re
 import pandas as pd
 from common import normalizar_columna, excluir_cajas_abiertas, normalizar_productos
 from providers import REGISTRO
+from catalog_lookup import resolver_por_catalogo, usar_catalogos_temporales
 
 def detectar_proveedores_archivo(nombre):
     # Comparar palabras completas; fechas y separadores pueden rodear el nombre.
@@ -28,7 +29,17 @@ def moneda_predeterminada(proveedor):
 
 
 def procesar_archivos(archivos, fecha, proveedor="Intcomex", moneda_valor=None, permitir_pn=False,
-                     hojas_por_archivo=None):
+                     hojas_por_archivo=None, catalogos_temporales=None):
+    """Procesa el lote; las bases cargadas por pantalla no se persisten."""
+    with usar_catalogos_temporales(catalogos_temporales):
+        return _procesar_archivos(
+            archivos, fecha, proveedor, moneda_valor, permitir_pn,
+            hojas_por_archivo=hojas_por_archivo,
+        )
+
+
+def _procesar_archivos(archivos, fecha, proveedor="Intcomex", moneda_valor=None, permitir_pn=False,
+                      hojas_por_archivo=None):
     moneda_valor = moneda_valor or moneda_predeterminada(proveedor)
     if moneda_valor not in ('USD', 'CLP'):
         raise ValueError('Selecciona USD o CLP como moneda de la lista.')
@@ -40,14 +51,26 @@ def procesar_archivos(archivos, fecha, proveedor="Intcomex", moneda_valor=None, 
         try:
             if hasattr(archivo, 'tabla_pegada'):
                 tabla = excluir_cajas_abiertas(archivo.tabla_pegada)
+                tabla, pendientes_catalogo, detalle_catalogo = resolver_por_catalogo(tabla, proveedor)
+                if pendientes_catalogo:
+                    tabla = tabla.drop(index=pendientes_catalogo).copy()
+                if tabla.empty:
+                    raise ValueError('No quedaron filas con precio y SKU resoluble en el catálogo.')
                 base = tabla.rename(columns={'provider_code': 'SKU', 'currency_unaware_cost_neto': 'venta neto usd', 'quantity': 'stock actual'})
                 resultado = normalizar_productos(base, fecha)
                 for c in ('mpn', 'name', 'brand'):
                     resultado[c] = tabla.loc[resultado.index, c]
                 resultado['currency'] = moneda_valor
+                detalle = 'Texto pegado: mapeo y moneda confirmados por el usuario. No se inventan datos.'
+                if detalle_catalogo:
+                    detalle += ' ' + detalle_catalogo + '.'
+                if getattr(archivo, 'filas_sin_precio', 0):
+                    detalle += f' Filas sin precio excluidas: {archivo.filas_sin_precio}.'
+                if pendientes_catalogo:
+                    detalle += f' Filas pendientes por código: {len(pendientes_catalogo)}.'
                 fila.update({'Leídos': len(archivo.tabla_pegada), 'Válidos': len(resultado),
                     'Descartados': len(archivo.tabla_pegada)-len(resultado), 'Estado': 'Procesado',
-                    'Detalle': 'Texto pegado: mapeo y moneda confirmados por el usuario. No se aplican reglas automáticas de precio por proveedor.'})
+                    'Detalle': detalle})
                 resultado['Archivo de origen'] = nombre
                 resultados.append(resultado)
                 resumen.append(fila)
@@ -76,3 +99,4 @@ def procesar_archivos(archivos, fecha, proveedor="Intcomex", moneda_valor=None, 
         resumen.append(fila)
     combinado = pd.concat(resultados, ignore_index=True) if resultados else pd.DataFrame()
     return pd.DataFrame(resumen), combinado
+

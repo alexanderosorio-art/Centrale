@@ -5,6 +5,9 @@ Los catálogos no se guardan en el repositorio. Se configuran mediante
 """
 import os
 import re
+from contextlib import contextmanager
+from contextvars import ContextVar
+from io import BytesIO
 from pathlib import Path
 
 import pandas as pd
@@ -15,6 +18,7 @@ CATALOGOS = {
     'Tecnoglobal': ('TECNOGLOBAL',),
     'Nexsys': ('NEXSYS',),
 }
+_CATALOGOS_TEMPORALES = ContextVar('catalogos_temporales', default={})
 
 
 def _norm(value):
@@ -37,8 +41,49 @@ def _catalog_path(provider):
     return None
 
 
+def _validar_catalogo(frame, provider):
+    """Valida que una base corresponda al proveedor elegido."""
+    frame = frame.fillna("")
+    provider_col = next((c for c in ("provider", "PROVIDER") if c in frame.columns), None)
+    nombres = {_norm(nombre) for nombre in CATALOGOS.get(provider, (provider,))}
+    if provider_col and not frame[provider_col].astype(str).map(_norm).isin(nombres).any():
+        return None
+    if not any(c in frame.columns for c in ("provider_code", "PROVIDER_CODE")):
+        return None
+    if not any(c in frame.columns for c in ("mpn", "MPN", "pn", "PN")):
+        return None
+    return frame
+
+
+def leer_catalogo_subido(provider, archivo):
+    """Lee una base temporal. Solo vive en la sesión actual del usuario."""
+    nombre = getattr(archivo, 'name', '').lower()
+    contenido = archivo.getvalue() if hasattr(archivo, 'getvalue') else archivo.read()
+    try:
+        frame = (pd.read_csv(BytesIO(contenido), dtype=str) if nombre.endswith('.csv')
+                 else pd.read_excel(BytesIO(contenido), dtype=str))
+    except Exception as error:
+        raise ValueError('No se pudo leer la base privada de códigos.') from error
+    if _validar_catalogo(frame, provider) is None:
+        raise ValueError(f'La base no contiene provider_code y PN válidos para {provider}.')
+    return frame.fillna("")
+
+
+@contextmanager
+def usar_catalogos_temporales(catalogos):
+    """Aísla bases cargadas por una persona durante una sola ejecución."""
+    token = _CATALOGOS_TEMPORALES.set(catalogos or {})
+    try:
+        yield
+    finally:
+        _CATALOGOS_TEMPORALES.reset(token)
+
+
 def cargar_catalogo(provider):
     """Carga un catálogo configurado, devolviendo ``None`` si no existe."""
+    temporal = _CATALOGOS_TEMPORALES.get().get(provider)
+    if temporal is not None:
+        return _validar_catalogo(temporal, provider)
     path = _catalog_path(provider)
     explicit = bool(path and path.exists())
     candidates = [path] if explicit else []
@@ -53,16 +98,11 @@ def cargar_catalogo(provider):
             frame = (pd.read_csv(candidate, dtype=str) if candidate.suffix.lower() == ".csv"
                      else pd.read_excel(candidate, dtype=str)).fillna("")
             provider_col = next((c for c in ("provider", "PROVIDER") if c in frame.columns), None)
-            nombres = {_norm(nombre) for nombre in CATALOGOS.get(provider, (provider,))}
-            if provider_col and not frame[provider_col].astype(str).map(_norm).isin(nombres).any():
-                continue
             if not explicit and not provider_col:
                 continue
-            if not any(c in frame.columns for c in ("provider_code", "PROVIDER_CODE")):
-                continue
-            if not any(c in frame.columns for c in ("mpn", "MPN", "pn", "PN")):
-                continue
-            return frame
+            validado = _validar_catalogo(frame, provider)
+            if validado is not None:
+                return validado
         except Exception:
             continue
     return None
@@ -126,3 +166,4 @@ def resolver_por_catalogo(tabla, provider):
     if pendientes and not ambiguos:
         detalle += f"; {len(pendientes)} filas sin coincidencia única quedan pendientes"
     return resultado, pendientes, detalle
+
