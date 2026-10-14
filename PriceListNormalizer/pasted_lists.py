@@ -38,7 +38,15 @@ def detectar_columnas(columnas, proveedor):
         if destino == 'currency_unaware_cost_neto' and not precio_exclusivo:
             candidatos += [c for c in columnas if c not in candidatos and any(p in normalizar_texto_columna(c) for p in ('PRECIO', 'COSTO', 'OFERTA', 'PROMO', 'VENTA NETO', 'VALOR USD'))]
         mapeo[destino] = candidatos[0] if len(candidatos) == 1 else None
-        if len(candidatos) > 1 or (not candidatos and destino in ('provider_code', 'currency_unaware_cost_neto', 'quantity')):
+        codigo_por_catalogo = (
+            proveedor in ('Intcomex', 'Ingram')
+            and destino == 'provider_code'
+            and any(normalizar_texto_columna(c) in {
+                *{normalizar_texto_columna(a) for a in alias['name']},
+                *{normalizar_texto_columna(a) for a in alias['mpn']},
+            } for c in columnas)
+        )
+        if len(candidatos) > 1 or (not candidatos and destino in ('provider_code', 'currency_unaware_cost_neto', 'quantity') and not codigo_por_catalogo):
             dudas[destino] = candidatos or list(columnas)
         if destino == 'currency_unaware_cost_neto' and len(candidatos) == 1 and proveedor != 'Facciatech' and not (proveedor == 'Tecnoglobal' and normalizar_texto_columna(candidatos[0]) == 'PRECIO VOLUMEN'):
             if any(p in normalizar_texto_columna(candidatos[0]) for p in ('PVP', 'VOLUMEN', 'MAYOR', 'PROMO', 'OFERTA')):
@@ -93,27 +101,36 @@ def interpretar_texto(texto, columnas_verticales=None):
     return pd.DataFrame(datos, columns=cabecera)
 
 
-def archivo_mapeado(df, mapeo):
+def archivo_mapeado(df, mapeo, permitir_codigo_ausente=False):
     tabla = pd.DataFrame(index=df.index)
     for destino in ('provider_code', 'currency_unaware_cost_neto', 'quantity', 'mpn', 'name', 'brand'):
         origen = mapeo.get(destino)
-        if destino in ('provider_code', 'currency_unaware_cost_neto', 'quantity') and not origen:
+        if destino in ('currency_unaware_cost_neto', 'quantity') and not origen:
+            raise ValueError('Selecciona código, precio y stock antes de procesar.')
+        if destino == 'provider_code' and not origen and not permitir_codigo_ausente:
             raise ValueError('Selecciona código, precio y stock antes de procesar.')
         tabla[destino] = df[origen].fillna('').astype(str).str.strip() if origen else ''
+    sin_precio = []
     for indice, fila in tabla.iterrows():
         stock = fila.quantity.replace('\u00a0', ' ').strip()
         if re.fullmatch(r'\d{1,3}(?:,\d{3})+', stock):
             stock = stock.replace(',', '')
-        if not fila.provider_code or not re.fullmatch(r'\d+\+?', stock):
+        if (not permitir_codigo_ausente and not fila.provider_code) or not re.fullmatch(r'\d+\+?', stock):
             raise ValueError(f'Fila {indice+1}: código ausente o stock ambiguo. Corrige la vista previa.')
         precio = fila.currency_unaware_cost_neto.replace('\u00a0', ' ').replace(' ', '')
-        if not re.fullmatch(r'\$?\d[\d.,]*', precio) or pd.isna(limpiar_numero(precio)):
-            raise ValueError(f'Fila {indice+1}: precio ambiguo o ausente. Corrige la vista previa.')
+        if not re.fullmatch(r'\$?\d[\d.,]*', precio) or pd.isna(limpiar_numero(precio)) or limpiar_numero(precio) <= 0:
+            sin_precio.append(indice)
+            continue
         tabla.loc[indice, 'quantity'] = stock.rstrip('+')
         tabla.loc[indice, 'currency_unaware_cost_neto'] = str(limpiar_numero(precio))
+    if sin_precio:
+        tabla = tabla.drop(index=sin_precio).copy()
+    if tabla.empty:
+        raise ValueError('No hay filas con precio válido para procesar.')
     archivo = BytesIO(tabla.to_csv(index=False).encode('utf-8-sig'))
     archivo.name = 'Lista pegada.csv'
     archivo.tabla_pegada = tabla
+    archivo.filas_sin_precio = len(sin_precio)
     return archivo
 
 

@@ -3,6 +3,7 @@ import pandas as pd
 from table_reader import ReglasTabla, leer_tablas, PRECIOS, PART_NUMBERS
 from common import normalizar_productos, normalizar_texto_columna
 from file_readers import leer_hoja_xlsx_con_datos, obtener_nombres_hojas
+from catalog_lookup import resolver_por_catalogo
 
 NOMBRE = 'Ingram'
 PATRON = r'(?:INGRAM|IM)'
@@ -12,6 +13,7 @@ STOCK_TRANSITOS = {
     'VDR_NAME', 'SKU', 'VDR_PARTNB', 'MODELO', 'DESC TECNICA',
     'C REVENDEDOR', 'STOCK', 'TRANSITOS', 'ETA CD',
 }
+PN_QTY_PRECIO = {'PN', 'QTY', 'PRECIO'}
 
 
 def _leer_stock_y_transitos(archivo, fecha, hojas_seleccionadas=None):
@@ -49,10 +51,58 @@ def _leer_stock_y_transitos(archivo, fecha, hojas_seleccionadas=None):
     )
 
 
+def _leer_pn_con_catalogo(archivo, fecha, hojas_seleccionadas=None):
+    nombres = hojas_seleccionadas if hojas_seleccionadas is not None else obtener_nombres_hojas(archivo)
+    salida, leidos, pendientes = [], 0, 0
+    for nombre in nombres:
+        bruto = leer_hoja_xlsx_con_datos(archivo, nombre)
+        for inicio, fila in bruto.iterrows():
+            columnas = [normalizar_texto_columna(v) for v in fila]
+            if not PN_QTY_PRECIO.issubset(columnas):
+                continue
+            if any(columnas.count(c) != 1 for c in PN_QTY_PRECIO):
+                raise ValueError(f'Ingram: encabezados duplicados en {nombre}.')
+            datos = bruto.iloc[inicio + 1:].dropna(how='all').copy()
+            leidos += len(datos)
+            def campo(columna):
+                return datos.iloc[:, columnas.index(columna)]
+            tabla = pd.DataFrame({
+                'provider_code': '',
+                'currency_unaware_cost_neto': campo('PRECIO'),
+                'quantity': campo('QTY'),
+                'mpn': campo('PN'),
+                'name': '',
+                'brand': '',
+            }, index=datos.index)
+            tabla, por_revisar, detalle = resolver_por_catalogo(tabla, NOMBRE)
+            pendientes += len(por_revisar)
+            tabla = tabla.drop(index=por_revisar)
+            if tabla.empty:
+                continue
+            base = tabla.rename(columns={
+                'provider_code': 'SKU',
+                'currency_unaware_cost_neto': 'venta neto usd',
+                'quantity': 'stock actual',
+            })
+            resultado = normalizar_productos(base, fecha)
+            resultado['mpn'] = tabla.loc[resultado.index, 'mpn'].fillna('').astype(str).str.strip()
+            salida.append(resultado)
+            break
+    archivo.seek(0)
+    if not salida:
+        return None
+    texto = 'Ingram: SKU recuperado desde catálogo privado usando PN.'
+    if pendientes:
+        texto += f' Filas sin coincidencia única excluidas: {pendientes}.'
+    return pd.concat(salida, ignore_index=True), leidos, texto
+
+
 def leer(archivo, fecha, moneda, permitir_pn=False, hojas_seleccionadas=None):
     if archivo.name.lower().endswith('.xlsx'):
         resultado = _leer_stock_y_transitos(archivo, fecha, hojas_seleccionadas)
         if resultado is not None:
             return resultado
+        resultado = _leer_pn_con_catalogo(archivo, fecha, hojas_seleccionadas)
+        if resultado is not None:
+            return resultado
     return leer_tablas(archivo, fecha, moneda, permitir_pn, hojas_seleccionadas, reglas=REGLAS)
-

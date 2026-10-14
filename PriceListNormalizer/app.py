@@ -144,7 +144,10 @@ with espacio_lista, st.expander('Lista'):
             if pendientes:
                 st.warning('Resuelve las columnas dudosas antes de procesar. No se eligen precios ni marcas por suposición.')
             else:
-                archivo_texto = archivo_mapeado(tabla, mapeo)
+                archivo_texto = archivo_mapeado(
+                    tabla, mapeo,
+                    permitir_codigo_ausente=(proveedor in ('Intcomex', 'Ingram') and not mapeo.get('provider_code')),
+                )
                 archivos.append(archivo_texto)
                 formato_pegado = (formato, mapeo.copy())
                 texto_pendiente = False
