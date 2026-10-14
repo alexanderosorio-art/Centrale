@@ -9,6 +9,8 @@ from file_readers import leer_csv, detectar_encabezado, leer_hoja_xlsx_con_datos
 NOMBRE = 'Intcomex'
 PATRON = r'(?:INTCOMEX|IX)'
 MONEDA = 'USD'
+ASUS_BASE = {'SKU INTCOMEX', 'NUMERO DE PARTE', 'STOCK REFERENCIAL', 'DETALLE'}
+ASUS_PRECIOS = {'PRECIO USD (S/IVA)', 'PRECIO (S/IVA)'}
 REGLAS = ReglasTabla(nombre=NOMBRE, codigos=('SKU', 'MATERIAL/SKU', 'MATERIAL', 'CODIGO'), moneda_fija='USD')
 HIKVISION = {'SKU', 'PART #', 'DESCRIPCION', 'DPV', 'UNIT PRICE$'}
 PRECIOS_TOP = {'SKU', 'PART NUMBER MARCA', 'PRODUCT NAME', 'STOCK', 'PRECIOS TOP'}
@@ -25,7 +27,8 @@ def leer_intcomex_xlsx(archivo):
     columnas_asus = {'SKU INTCOMEX', 'NUMERO DE PARTE', 'PRECIO USD (S/IVA)',
                      'STOCK REFERENCIAL', 'DETALLE'}
     candidatos = [i for i, fila in bruto.iterrows()
-                  if columnas_asus.issubset({normalizar_texto_columna(v) for v in fila})
+                  if (ASUS_BASE.issubset({normalizar_texto_columna(v) for v in fila})
+                      and ASUS_PRECIOS.intersection({normalizar_texto_columna(v) for v in fila}))
                   or HIKVISION.issubset({normalizar_texto_columna(v) for v in fila})
                   or PRECIOS_TOP.issubset({normalizar_texto_columna(v) for v in fila})
                   or DELL.issubset({normalizar_texto_columna(v) for v in fila})
@@ -44,10 +47,14 @@ def leer_intcomex_xlsx(archivo):
 
 
 def procesar_intcomex_asus(df, expiry_date):
+    nombres = [normalizar_texto_columna(c) for c in df.columns]
+    precios = ASUS_PRECIOS.intersection(nombres)
+    if len(precios) != 1 or any(nombres.count(c) != 1 for c in ASUS_BASE | precios):
+        raise ValueError('Intcomex ASUS: columnas requeridas duplicadas o precio ambiguo.')
     columnas = {normalizar_texto_columna(c): c for c in df.columns}
     base = pd.DataFrame({
         'SKU': df[columnas['SKU INTCOMEX']],
-        'venta neto usd': df[columnas['PRECIO USD (S/IVA)']],
+        'venta neto usd': df[columnas[next(iter(precios))]],
         'stock actual': pd.to_numeric(df[columnas['STOCK REFERENCIAL']], errors='coerce'),
     }, index=df.index)
     resultado = normalizar_productos(base, expiry_date)
@@ -309,7 +316,7 @@ def leer(archivo, fecha, moneda, permitir_pn=False, hojas_seleccionadas=None):
         resultado = procesar_intcomex_top(df, fecha)
     elif HIKVISION.issubset(columnas):
         resultado = procesar_intcomex_hikvision(df, fecha)
-    elif {'SKU INTCOMEX', 'NUMERO DE PARTE', 'PRECIO USD (S/IVA)', 'STOCK REFERENCIAL', 'DETALLE'}.issubset(columnas):
+    elif ASUS_BASE.issubset(columnas) and ASUS_PRECIOS.intersection(columnas):
         resultado = procesar_intcomex_asus(df, fecha)
     elif {'PART NUMBER (MPN)', 'PRECIO ESPECIAL NETO UNIT. CENTRALE'}.issubset(columnas):
         resultado = procesar_intcomex_wd(df, fecha)
