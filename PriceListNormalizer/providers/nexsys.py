@@ -11,7 +11,7 @@ NOMBRE = 'Nexsys'
 PATRON = r'NEXSYS'
 MONEDA = 'USD'
 REGLAS = ReglasTabla(
-    nombre=NOMBRE, codigos=('SKU', 'CODIGO'), codigo_desde_pn=True,
+    nombre=NOMBRE, codigos=('SKU', 'CODIGO'), codigo_desde_pn=True, catalogo_por_pn=True,
     preferir_oferta=True,
     # Ofertas unitarias observadas en ASUS. No incluir precios por volumen.
     ofertas=('OFERTA', 'PRECIO OFERTA', 'PRECIOS OFERTAS USD'),
@@ -181,3 +181,4 @@ def leer_catalogo(archivo, fecha, hojas_seleccionadas=None):
     if omitidas:
         detalle += '. Hojas fuera de selección: ' + ', '.join(omitidas)
     return resultado, leidos, detalle
+

@@ -11,7 +11,10 @@ PATRON = r'(?:INTCOMEX|IX)'
 MONEDA = 'USD'
 ASUS_BASE = {'SKU INTCOMEX', 'NUMERO DE PARTE', 'STOCK REFERENCIAL', 'DETALLE'}
 ASUS_PRECIOS = {'PRECIO USD (S/IVA)', 'PRECIO (S/IVA)'}
-REGLAS = ReglasTabla(nombre=NOMBRE, codigos=('SKU', 'MATERIAL/SKU', 'MATERIAL', 'CODIGO'), moneda_fija='USD')
+REGLAS = ReglasTabla(
+    nombre=NOMBRE, codigos=('SKU', 'MATERIAL/SKU', 'MATERIAL', 'CODIGO'),
+    moneda_fija='USD', catalogo_por_pn=True,
+)
 HIKVISION = {'SKU', 'PART #', 'DESCRIPCION', 'DPV', 'UNIT PRICE$'}
 PRECIOS_TOP = {'SKU', 'PART NUMBER MARCA', 'PRODUCT NAME', 'STOCK', 'PRECIOS TOP'}
 DELL = {'SKU', 'PN DELL', 'DESCRIPCION', 'PRECIO USD', 'STOCK REF'}
@@ -320,6 +323,12 @@ def leer(archivo, fecha, moneda, permitir_pn=False, hojas_seleccionadas=None):
         resultado = procesar_intcomex_asus(df, fecha)
     elif {'PART NUMBER (MPN)', 'PRECIO ESPECIAL NETO UNIT. CENTRALE'}.issubset(columnas):
         resultado = procesar_intcomex_wd(df, fecha)
-    else:
+    elif {'SKU', 'VENTA NETO USD', 'STOCK ACTUAL'}.issubset(columnas):
+        # Formato interno ya normalizado, con SKU explícito.
         resultado = normalizar_productos(df, fecha)
+    else:
+        # El lector común permite recuperar el SKU desde el catálogo privado
+        # si una lista trae PN, precio y stock, pero no código Intcomex.
+        return leer_tablas(archivo, fecha, moneda, permitir_pn, hojas_seleccionadas, reglas=REGLAS)
     return resultado, len(df), 'Se excluyen códigos vacíos, precios inválidos y stock no positivo.'
+

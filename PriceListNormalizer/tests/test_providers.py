@@ -1,5 +1,7 @@
 """Pruebas con archivos sintéticos; no incluyen listas comerciales privadas."""
 import sys
+import os
+import tempfile
 import unittest
 from datetime import date
 from io import BytesIO
@@ -107,6 +109,37 @@ class ProviderTests(unittest.TestCase):
             self.assertEqual(result.iloc[0].provider_code, result.iloc[0].mpn)
             self.assertEqual(summary.iloc[0]['Estado'], 'Procesado')
 
+    def test_private_catalog_recovers_unique_codes_for_ix_tg_and_nx(self):
+        """Las bases privadas aportan solo el código: no precios ni stock."""
+        anterior = os.environ.get('PRICE_LIST_CATALOG_DIR')
+        with tempfile.TemporaryDirectory() as carpeta:
+            os.environ['PRICE_LIST_CATALOG_DIR'] = carpeta
+            try:
+                for proveedor, fuente, codigo in [
+                    ('Intcomex', 'INTCOMEX', 'IX-1'),
+                    ('Tecnoglobal', 'TECNOGLOBAL', 'TG-1'),
+                    ('Nexsys', 'NEXSYS', 'NX-1'),
+                ]:
+                    with self.subTest(proveedor=proveedor):
+                        pd.DataFrame([{
+                            'provider': fuente,
+                            'provider_code': codigo,
+                            'mpn': 'PN-UNICO',
+                        }]).to_csv(Path(carpeta) / f'{proveedor}.csv', index=False)
+                        summary, result = procesar_archivos([
+                            excel(['PART NUMBER', 'PRECIO', 'STOCK', 'DESCRIPCION'],
+                                  [['PN-UNICO', 25, 4, 'Producto']])
+                        ], FECHA, proveedor)
+                        self.assertEqual(summary.iloc[0]['Estado'], 'Procesado', summary.to_dict())
+                        self.assertEqual(result.iloc[0].provider_code, codigo)
+                        self.assertEqual(result.iloc[0].currency_unaware_cost_neto, 25)
+                        self.assertEqual(result.iloc[0].quantity, 4)
+            finally:
+                if anterior is None:
+                    os.environ.pop('PRICE_LIST_CATALOG_DIR', None)
+                else:
+                    os.environ['PRICE_LIST_CATALOG_DIR'] = anterior
+
     def test_kepler_preventa_and_explicit_fields(self):
         headers = [*PLANTILLAS['Kepler'], 'PN', 'MARCA']
         summary, result = procesar_archivos([excel(headers, [['A-\nB', 12, 3, 'Una\n descripción', 'PN-A', 'Marca']],
@@ -137,6 +170,22 @@ class ProviderTests(unittest.TestCase):
         self.assertEqual(result.iloc[0].mpn, 'PN-A')
         self.assertEqual(result.iloc[0]['name'], 'Cámara')
         self.assertTrue((result.brand == '').all())
+
+    def test_ingram_stock_y_transitos_uses_immediate_stock_only(self):
+        headers = ['VDR_NAME', 'SKU', 'VDR_PARTNB', 'MODELO', 'DESC TECNICA',
+                   'C Revendedor', 'Cost DEAL +20 unid', 'STOCK', 'TRANSITOS', 'ETA CD']
+        rows = [
+            ['ASUS', '6656333', '90XB08CN-BDS0F0', 'DC300', 'Dock ASUS', 120.18, 99, 103, 40, '2026-11-01'],
+            ['ASUS', '6789835', '90PF05A1-M00MV0', 'P500', 'Desktop ASUS', 424.43, 399, 0, 49, '2026-11-01'],
+        ]
+        summary, result = procesar_archivos([excel(headers, rows)], FECHA, 'Ingram', hojas_por_archivo={0: ['MATERIAL']})
+        self.assertEqual(summary.iloc[0]['Estado'], 'Procesado')
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result.iloc[0].provider_code, '6656333')
+        self.assertEqual(result.iloc[0].currency_unaware_cost_neto, 120.18)
+        self.assertEqual(result.iloc[0].quantity, 103)
+        self.assertEqual(result.iloc[0].mpn, '90XB08CN-BDS0F0')
+        self.assertEqual(result.iloc[0].brand, 'ASUS')
 
     def test_exports_and_conflicts(self):
         _, result = procesar_archivos([excel(PLANTILLAS['Intcomex'], [['A', 12.75, 3], ['A', 12.75, 3], ['B', 5, 1], ['B', 6, 1]])], FECHA)
@@ -290,3 +339,4 @@ class ProviderTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+

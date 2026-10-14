@@ -146,7 +146,7 @@ with espacio_lista, st.expander('Lista'):
             else:
                 archivo_texto = archivo_mapeado(
                     tabla, mapeo,
-                    permitir_codigo_ausente=(proveedor in ('Intcomex', 'Ingram') and not mapeo.get('provider_code')),
+                    permitir_codigo_ausente=(proveedor in ('Intcomex', 'Ingram', 'Tecnoglobal', 'Nexsys') and not mapeo.get('provider_code')),
                 )
                 archivos.append(archivo_texto)
                 formato_pegado = (formato, mapeo.copy())
@@ -370,3 +370,4 @@ if 'lote' in st.session_state:
                 boton_copiar_excel(final)
         elif final.empty:
             st.warning('No quedaron productos sin conflictos para generar el Excel CRM.')
+

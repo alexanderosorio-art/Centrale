@@ -4,6 +4,7 @@ import pandas as pd
 from dataclasses import dataclass
 from common import normalizar_texto_columna, normalizar_productos
 from file_readers import obtener_nombres_hojas, leer_hoja_xlsx_con_datos
+from catalog_lookup import resolver_por_catalogo
 
 PRECIOS = ('PV OFERTA C/U', 'PRECIO UNITARIO US$', 'PRECIO USD (S/IVA)', 'PRECIOS USD', 'PRECIO USD$',
            'VALOR USD + IVA', 'PRECIO ESPECIAL NETO UNIT. CENTRALE', 'VENTA NETO USD',
@@ -21,6 +22,9 @@ class ReglasTabla:
     preferir_oferta: bool = False
     ofertas: tuple[str, ...] = ('OFERTA', 'OFERTA X VOLUMEN', 'PRECIO OFERTA')
     codigo_desde_pn: bool = False
+    # Permite recuperar el SKU desde el catálogo privado cuando el archivo
+    # trae PN, precio y stock, pero no el código del mayorista.
+    catalogo_por_pn: bool = False
     stock_estricto: bool = False
     descripcion_exacta: str | None = None
     requiere_descripcion: bool = True
@@ -106,7 +110,7 @@ def leer_tablas(archivo, fecha, moneda, permitir_pn=False, hojas_seleccionadas=N
         if isinstance(hojas, pd.DataFrame):
             hojas = {hojas_seleccionadas[0] if hojas_seleccionadas else 'Hoja 1': hojas}
     preferir_oferta = reglas.preferir_oferta
-    salida, omitidas, usadas = [], [], []
+    salida, omitidas, usadas, detalles_catalogo = [], [], [], []
     leidos = 0
     for hoja, bruto in hojas.items():
         candidatos = []
@@ -115,7 +119,8 @@ def leer_tablas(archivo, fecha, moneda, permitir_pn=False, hojas_seleccionadas=N
             opciones_pn = reglas.part_numbers
             pn = next((c for c in opciones_pn if c in cols), None)
             cod = next((c for c in codigos if c in cols), None)
-            if not cod and reglas.codigo_desde_pn:
+            usar_catalogo = not cod and bool(pn) and reglas.catalogo_por_pn
+            if not cod and (usar_catalogo or reglas.codigo_desde_pn):
                 cod = pn
             stk = next((c for c in stocks if c in cols), None)
             ofertas = [c for c in reglas.ofertas if c in cols]
@@ -125,13 +130,13 @@ def leer_tablas(archivo, fecha, moneda, permitir_pn=False, hojas_seleccionadas=N
             if reglas.descripcion_exacta:
                 descripcion = reglas.descripcion_exacta if reglas.descripcion_exacta in cols else None
             if cod and precio_neto and stk and (descripcion or not reglas.requiere_descripcion):
-                candidatos.append((i, cols, cod, precio_neto, stk, pn, ofertas, descripcion))
+                candidatos.append((i, cols, cod, precio_neto, stk, pn, ofertas, descripcion, usar_catalogo))
         if not candidatos:
             omitidas.append(hoja)
             continue
         usadas.append(hoja)
-        for posicion, (inicio, cols, cod, pre, stk, pn, ofertas, descripcion) in enumerate(candidatos):
-            if reglas.codigo_desde_pn and cod == pn and not permitir_pn:
+        for posicion, (inicio, cols, cod, pre, stk, pn, ofertas, descripcion, usar_catalogo) in enumerate(candidatos):
+            if reglas.codigo_desde_pn and cod == pn and not permitir_pn and not usar_catalogo:
                 raise ValueError(f'{reglas.nombre}: confirma que el CRM acepta el número de parte como provider_code.')
             divisa = (
                 reglas.moneda_fija if reglas.moneda_fija
@@ -157,18 +162,48 @@ def leer_tablas(archivo, fecha, moneda, permitir_pn=False, hojas_seleccionadas=N
             if reglas.stock_estricto:
                 # No interpretar plazos o comentarios como cantidades.
                 cantidades = pd.to_numeric(datos.iloc[:,cols.index(stk)], errors='coerce')
-            base = pd.DataFrame({'SKU': datos.iloc[:,cols.index(cod)],
+            base = pd.DataFrame({'SKU': '' if usar_catalogo else datos.iloc[:,cols.index(cod)],
                 'venta neto usd': precio_base,
                 'stock actual': cantidades})
+            if usar_catalogo:
+                tabla_catalogo = pd.DataFrame({
+                    'provider_code': '',
+                    'currency_unaware_cost_neto': precio_base,
+                    'quantity': cantidades,
+                    'mpn': datos.iloc[:, cols.index(pn)].fillna('').astype(str).str.strip(),
+                    'name': (datos.iloc[:, cols.index(descripcion)].fillna('').astype(str).str.strip()
+                             if descripcion else ''),
+                    'brand': (datos.iloc[:, cols.index('MARCA')].fillna('').astype(str).str.strip()
+                              if 'MARCA' in cols else ''),
+                }, index=datos.index)
+                tabla_catalogo, pendientes, detalle_catalogo = resolver_por_catalogo(tabla_catalogo, reglas.nombre)
+                if reglas.codigo_desde_pn and pendientes:
+                    # Nexsys confirmó que, cuando no exista otro dato, PN y SKU
+                    # son equivalentes. Esta excepción no se aplica a otros proveedores.
+                    tabla_catalogo.loc[pendientes, 'provider_code'] = tabla_catalogo.loc[pendientes, 'mpn']
+                    pendientes = []
+                    detalle_catalogo += '; PN usado como código según regla de Nexsys'
+                if pendientes:
+                    tabla_catalogo = tabla_catalogo.drop(index=pendientes)
+                if detalle_catalogo:
+                    detalles_catalogo.append(detalle_catalogo)
+                base = tabla_catalogo.rename(columns={
+                    'provider_code': 'SKU',
+                    'currency_unaware_cost_neto': 'venta neto usd',
+                    'quantity': 'stock actual',
+                })
             result = normalizar_productos(base, fecha)
             result['currency'] = divisa
             # La marca solo se toma de una columna explícita del archivo.
             # El nombre de la hoja no es un dato de producto y no debe inferirse.
-            if 'MARCA' in cols:
+            if usar_catalogo:
+                for campo in ('mpn', 'name', 'brand'):
+                    result[campo] = tabla_catalogo.loc[result.index, campo].fillna('').astype(str).str.strip()
+            elif 'MARCA' in cols:
                 result['brand'] = datos.loc[result.index].iloc[:,cols.index('MARCA')].fillna('').astype(str).str.strip()
-            if pn:
+            if pn and not usar_catalogo:
                 result['mpn'] = datos.loc[result.index].iloc[:,cols.index(pn)].fillna('').astype(str).str.strip()
-            if descripcion:
+            if descripcion and not usar_catalogo:
                 result['name'] = datos.loc[result.index].iloc[:,cols.index(descripcion)].fillna('').astype(str).str.strip()
             salida.append(result)
     if not salida:
@@ -176,4 +211,7 @@ def leer_tablas(archivo, fecha, moneda, permitir_pn=False, hojas_seleccionadas=N
     detalle = ('Tablas PDF procesadas: ' if es_pdf else 'Hojas procesadas: ') + ', '.join(usadas)
     if omitidas:
         detalle += '. Hojas sin tabla compatible: ' + ', '.join(omitidas)
+    if detalles_catalogo:
+        detalle += '. ' + ' '.join(dict.fromkeys(detalles_catalogo))
     return pd.concat(salida, ignore_index=True), leidos, detalle
+

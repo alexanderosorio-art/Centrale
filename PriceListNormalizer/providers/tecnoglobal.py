@@ -9,7 +9,10 @@ from file_readers import obtener_nombres_hojas, leer_hoja_xlsx_con_datos
 NOMBRE = 'Tecnoglobal'
 PATRON = r'(?:TECNO[\W_]*GLOBAL|TG)'
 MONEDA = 'USD'
-REGLAS = ReglasTabla(nombre=NOMBRE, codigos=('CODIGO TG', 'CODIGO', 'CODIGO SISTEMA', 'SKU'))
+REGLAS = ReglasTabla(
+    nombre=NOMBRE, codigos=('CODIGO TG', 'CODIGO', 'CODIGO SISTEMA', 'SKU'),
+    catalogo_por_pn=True,
+)
 
 
 def leer(archivo, fecha, moneda, permitir_pn=False, hojas_seleccionadas=None):
@@ -92,3 +95,4 @@ def leer(archivo, fecha, moneda, permitir_pn=False, hojas_seleccionadas=None):
             return resultado, leidos, ('Hojas procesadas: ' + ', '.join(usadas) +
                 '. Componentes: Precio Volumen; Linksys: Precio Especial USD; Cyber: precio Cyber CLP y vigencia limitada al archivo. Monedas sin conversión.')
     return leer_tablas(archivo, fecha, moneda, permitir_pn, hojas_seleccionadas, reglas=REGLAS)
+
