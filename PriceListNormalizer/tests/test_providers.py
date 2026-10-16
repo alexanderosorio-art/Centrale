@@ -317,6 +317,21 @@ class ProviderTests(unittest.TestCase):
         self.assertEqual(result.iloc[0].mpn, '100-100001721WOF')
         self.assertEqual(result.iloc[0].brand, 'AMD')
 
+    def test_compu_soluciones_model_and_discount_price(self):
+        headers = ['Modelo', 'No. de Parte', 'Descripción', 'Cantidad',
+                   'Precio Distr.', 'Precio con descuento']
+        rows = [
+            ['WDC15', '5J.K0EBY.E0A', 'Presentador inalámbrico', 3, 601, 582.2],
+            ['SIN OFERTA', 'PN-B', 'Mouse', 2, 25, None],
+            ['SIN STOCK', 'PN-C', 'Teclado', 0, 20, 18],
+        ]
+        summary, result = procesar_archivos([excel(headers, rows)], FECHA, 'Compu Soluciones')
+        self.assertEqual(summary.iloc[0]['Estado'], 'Procesado')
+        self.assertEqual(list(result.provider_code), ['WDC15', 'SIN OFERTA'])
+        self.assertEqual(list(result.mpn), ['5J.K0EBY.E0A', 'PN-B'])
+        self.assertEqual(list(result.currency_unaware_cost_neto), [582.2, 25])
+        self.assertTrue((result.currency == 'USD').all())
+
     def test_intcomex_hpe_immediate_only(self):
         headers = ['PN', 'DESCRIPCIÓN', 'PRECIO UN\nVENTA', 'Precio\nPROMO Referencial', 'Tiempo\nENTREGA', 'SKU INTCOMEX']
         rows = [['PN-A', 'Servidor', 3000, 2370, '20 unidades\nENTREGA INMEDIATA', 'A'],
