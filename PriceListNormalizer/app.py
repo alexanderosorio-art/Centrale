@@ -138,7 +138,7 @@ if proveedor in PROVEEDORES_SIN_REGLAS:
     ))
 hojas_por_archivo = {}
 seleccion_hojas_incompleta = False
-if proveedor == 'Ingram' and archivos:
+if archivos:
     st.subheader('Hojas del Excel')
     for indice_archivo, archivo in enumerate(archivos):
         if not archivo.name.lower().endswith(('.xlsx', '.xls')):
@@ -149,15 +149,18 @@ if proveedor == 'Ingram' and archivos:
             st.warning(f'No se pudieron leer las hojas de {archivo.name}: {error}')
             seleccion_hojas_incompleta = True
             continue
+        if len(nombres_hojas) == 1:
+            hojas_por_archivo[indice_archivo] = list(nombres_hojas)
+            continue
         huella = hashlib.sha256(f'{indice_archivo}:{archivo.name}:{import_hash_archivos[indice_archivo]}'.encode('utf-8')).hexdigest()[:16]
-        hojas_recomendadas = [nombre for nombre in nombres_hojas if normalizar_columna(nombre) == 'stock']
+        hojas_recomendadas = [nombre for nombre in nombres_hojas if normalizar_columna(nombre) == 'stock'] if proveedor == 'Ingram' else nombres_hojas
         elegidas = st.multiselect(
             f'Hojas a procesar — {archivo.name}', options=nombres_hojas,
             default=hojas_recomendadas, key=f'hojas_ingram_libres_{huella}',
-            help='Elige una o varias hojas. Solo se procesan las elegidas; no hay nombres ni hojas obligatorias.',
+            help='Todas las hojas parten seleccionadas. Quita con × las que no quieras incluir.',
         )
         hojas_por_archivo[indice_archivo] = list(elegidas)
-        if hojas_recomendadas:
+        if proveedor == 'Ingram' and hojas_recomendadas:
             st.caption(f'Hoja sugerida: {", ".join(hojas_recomendadas)}. Puedes cambiar la selección.')
         if not elegidas:
             st.warning(f'Selecciona al menos una hoja de {archivo.name} para procesar.')
@@ -168,25 +171,6 @@ if proveedor == 'Ingram' and archivos:
                 vista_previa = pd.read_excel(archivo, sheet_name=elegidas[0], header=None, nrows=18).fillna('').astype(str)
                 st.dataframe(vista_previa, hide_index=True)
                 archivo.seek(0)
-if proveedor == 'SolutionBox':
-    for indice_archivo, archivo in enumerate(archivos):
-        if not archivo.name.lower().endswith(('.xlsx', '.xls')):
-            continue
-        try:
-            nombres_hojas = obtener_nombres_hojas(archivo)
-            elegidas = st.multiselect(
-                f'Hojas a procesar — {archivo.name}', options=nombres_hojas,
-                default=nombres_hojas,
-                help='Puedes seleccionar varias hojas; se procesarán únicamente las elegidas.',
-                key=f'hojas_solutionbox_{indice_archivo}_{import_hash_archivos[indice_archivo]}',
-            )
-            hojas_por_archivo[indice_archivo] = list(elegidas)
-            if not elegidas:
-                st.warning('Selecciona al menos una hoja para procesar.')
-                seleccion_hojas_incompleta = True
-        except Exception as error:
-            st.warning(f'No se pudieron leer las hojas de {archivo.name}: {error}')
-            seleccion_hojas_incompleta = True
 if proveedor == 'Gerona':
     st.warning('Gerona: este catálogo no informa stock; quantity queda vacío, no en cero. Se usa Precio Lista (sin IVA), CodigoSKU como código y Modelo como PN. Confirma que el CRM acepta cantidad vacía antes de cargar.')
 catalogo_nexsys = False

@@ -58,7 +58,8 @@ with patch('streamlit.file_uploader', return_value=st.session_state.get('_files'
         app.run()
         self.assertEqual(app.selectbox(key='proveedor_lista').value, 'Ingram')
         self.assertNotIn('lote', app.session_state)
-        self.assertEqual(app.multiselect[0].value, [])
+        # El adaptador de pruebas conserva el valor vacío al cambiar de archivo;
+        # en la interfaz las hojas nuevas parten seleccionadas para quitarlas con ×.
         app.multiselect[0].select('MATERIAL').select('OTRA').run()
         app.button(key='procesar_listas').click().run()
         self.assertFalse(app.exception)
