@@ -81,8 +81,6 @@ st.subheader('1. Agrega tus listas')
 archivos = st.file_uploader('Subir listas de precios del mismo proveedor',
                            type=['xlsx', 'xls', 'csv', 'pdf'], accept_multiple_files=True, help=AYUDA_ARCHIVOS)
 archivos = list(archivos)
-texto_pendiente = False
-formato_pegado = None
 import_hash_archivos = tuple(hashlib.sha256(a.getvalue()).hexdigest() for a in archivos)
 firma_deteccion = tuple((a.name, huella) for a, huella in zip(archivos, import_hash_archivos))
 proveedor_detectado, estado_deteccion = detectar_proveedor_lote([a.name for a in archivos])
@@ -92,7 +90,6 @@ if st.session_state.get('archivos_deteccion') != firma_deteccion:
     st.session_state['confirmar_proveedor_archivos'] = False
     if estado_deteccion == 'detectado':
         st.session_state[f'moneda_lista_{proveedor_detectado}'] = moneda_predeterminada(proveedor_detectado)
-espacio_lista = st.container(key='lista_pegada')
 proveedor = st.selectbox(
     'Proveedor',
     OPCIONES_PROVEEDORES,
@@ -133,67 +130,6 @@ if proveedor in ('Intcomex', 'Ingram', 'Tecnoglobal', 'Nexsys'):
             st.caption('Base privada lista para este proceso. No se guardará en la aplicación.')
         except ValueError as error:
             st.warning(str(error))
-def limpiar_lista_pegada():
-    """Limpiar la entrada y su revisión, conservando archivos y formatos aprendidos."""
-    st.session_state['texto_ingram'] = ''
-    for clave in list(st.session_state):
-        if clave.startswith(('revision_texto_', 'esquema_', 'manual_', 'duda_')):
-            del st.session_state[clave]
-    st.session_state.pop('lote', None)
-
-
-with espacio_lista, st.expander('Lista'):
-    texto = st.text_area('Pega la lista con sus encabezados', height=180, key='texto_ingram',
-        placeholder='Copia una tabla de Excel, un correo o una lista con encabezados…',
-        help='Acepta tablas tabuladas, Markdown o texto vertical. Se combina con los archivos del mismo mayorista. Puedes corregir las columnas antes de procesar; los datos ausentes no se completan.')
-    st.button('Limpiar lista pegada', key='limpiar_lista_pegada',
-              on_click=limpiar_lista_pegada, disabled=not texto.strip())
-    if texto.strip():
-        from pasted_lists import interpretar_texto, archivo_mapeado, detectar_columnas, ALIAS
-        texto_pendiente = True
-        huella = hashlib.sha256((proveedor + texto).encode('utf-8')).hexdigest()
-        with st.expander('Corregir columnas'):
-            esquema = st.text_input('Solo si falla el texto vertical: encabezados separados por punto y coma', key='esquema_' + huella)
-            manual = st.checkbox('Cambiar la asignación detectada', key='manual_' + huella)
-        try:
-            tabla = interpretar_texto(texto, [c.strip() for c in esquema.split(';') if c.strip()] or None)
-            formato = (proveedor, tuple(tabla.columns))
-            memoria = st.session_state.setdefault('formatos_pegados', {})
-            mapeo, dudas = detectar_columnas(tabla.columns, proveedor)
-            if formato in memoria:
-                mapeo, dudas = memoria[formato].copy(), {}
-            if manual:
-                with st.expander('Asignación manual', expanded=True):
-                    for destino in ALIAS:
-                        opciones = ['Sin dato'] + list(tabla.columns)
-                        actual = mapeo.get(destino) or 'Sin dato'
-                        valor = st.selectbox('Columna para ' + destino, opciones, index=opciones.index(actual), key='manual_map_' + destino + huella)
-                        mapeo[destino] = None if valor == 'Sin dato' else valor
-            else:
-                for destino, candidatos in dudas.items():
-                    opciones = ['Seleccionar...'] + (['Sin dato'] if destino in ('mpn', 'name', 'brand') else []) + candidatos
-                    valor = st.selectbox('¿Qué columna usar para ' + destino + '?', opciones, key='duda_' + destino + huella)
-                    mapeo[destino] = None if valor in ('Seleccionar...', 'Sin dato') else valor
-                    if valor == 'Sin dato':
-                        dudas[destino] = []
-            st.caption('Detectado: ' + ' · '.join(f'{k}: {v}' for k, v in mapeo.items() if v))
-            tabla = st.data_editor(tabla, hide_index=True, num_rows='fixed', key='revision_texto_' + huella)
-            pendientes = [k for k, candidatos in dudas.items() if candidatos and not mapeo.get(k)] if not manual else []
-            if pendientes:
-                st.warning('Resuelve las columnas dudosas antes de procesar. No se eligen precios ni marcas por suposición.')
-            else:
-                archivo_texto = archivo_mapeado(
-                    tabla, mapeo,
-                    permitir_codigo_ausente=(proveedor in ('Intcomex', 'Ingram', 'Tecnoglobal', 'Nexsys') and not mapeo.get('provider_code')),
-                )
-                archivos.append(archivo_texto)
-                formato_pegado = (formato, mapeo.copy())
-                texto_pendiente = False
-                st.caption('Lista preparada. Pulsa Procesar listas abajo. Los formatos confirmados se recuerdan durante esta sesión.')
-        except ValueError as error:
-            st.warning(str(error))
-# La detección del proveedor usa solo archivos originales; el texto no altera la selección.
-import_hash_archivos = tuple(hashlib.sha256(a.getvalue()).hexdigest() for a in archivos)
 if proveedor in PROVEEDORES_SIN_REGLAS:
     st.info(getattr(REGISTRO[proveedor], 'AVISO_PENDIENTE',
         f'{proveedor}: esta opción ya está disponible, pero todavía no tiene reglas '
@@ -292,9 +228,7 @@ if st.session_state.get('firma_lote') != firma:
 
 if st.button('Procesar listas', key='procesar_listas', type='primary',
     help='Combina las listas del mayorista seleccionado. Los SKU con diferencias se pueden revisar en el resultado.'):
-    if texto_pendiente:
-        st.warning('Revisa las columnas dudosas de la lista pegada antes de procesar.')
-    elif not archivos:
+    if not archivos:
         st.warning('Primero debes subir una o más listas de precios.')
     elif proveedor == 'Seleccionar...':
         st.warning('Primero debes seleccionar un proveedor.')
@@ -313,9 +247,6 @@ if st.button('Procesar listas', key='procesar_listas', type='primary',
             hojas_por_archivo=hojas_por_archivo,
             catalogos_temporales=catalogos_temporales,
         )
-        if formato_pegado and not (st.session_state['lote'][0]['Estado'] == 'Error').any():
-            formato, mapeo = formato_pegado
-            st.session_state['formatos_pegados'][formato] = mapeo
 
 if 'lote' in st.session_state:
     resumen, combinado = st.session_state['lote']

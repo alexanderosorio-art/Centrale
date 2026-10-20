@@ -12,7 +12,6 @@ class AppTests(unittest.TestCase):
     def test_stock_mode_name(self):
         source = Path(__file__).resolve().parents[1] / 'app.py'
         app = AppTest.from_file(str(source), default_timeout=20).run()
-        self.assertEqual(app.expander[0].label, 'Lista')
         app.selectbox(key='tipo_procesamiento').select('Lista de stock').run()
         self.assertFalse(app.exception)
         self.assertEqual(app.file_uploader[0].key, 'stock_archivos')
@@ -27,22 +26,12 @@ class AppTests(unittest.TestCase):
         self.assertIn('Precio Neto detalle', app.selectbox(key='proveedor_lista').proto.help)
         self.assertEqual(app.button(key='procesar_listas').proto.type, 'primary')
 
-    def test_clear_pasted_list(self):
+    def test_paste_list_section_is_not_rendered(self):
         source = Path(__file__).resolve().parents[1] / 'app.py'
         app = AppTest.from_file(str(source), default_timeout=20).run()
-        self.assertTrue(app.button(key='limpiar_lista_pegada').disabled)
-        app.selectbox(key='proveedor_lista').select('Intcomex').run()
-        app.text_area(key='texto_ingram').set_value('SKU\tPrecio\tStock\nA\t12,5\t3').run()
-        app.button(key='procesar_listas').click().run()
-        self.assertIn('lote', app.session_state)
-        memoria = app.session_state['formatos_pegados'].copy()
-        app.button(key='limpiar_lista_pegada').click().run()
         self.assertFalse(app.exception)
-        self.assertEqual(app.text_area(key='texto_ingram').value, '')
-        self.assertNotIn('lote', app.session_state)
-        self.assertEqual(app.selectbox(key='proveedor_lista').value, 'Intcomex')
-        self.assertEqual(app.session_state['formatos_pegados'], memoria)
-        self.assertTrue(app.button(key='limpiar_lista_pegada').disabled)
+        self.assertFalse(app.text_area)
+        self.assertFalse(any(expander.label == 'Lista' for expander in app.expander))
 
     def test_upload_process_and_reset(self):
         source = Path(__file__).resolve().parents[1] / 'app.py'
@@ -78,3 +67,4 @@ with patch('streamlit.file_uploader', return_value=st.session_state.get('_files'
 
 if __name__ == '__main__':
     unittest.main()
+
