@@ -150,12 +150,15 @@ if proveedor == 'Ingram' and archivos:
             seleccion_hojas_incompleta = True
             continue
         huella = hashlib.sha256(f'{indice_archivo}:{archivo.name}:{import_hash_archivos[indice_archivo]}'.encode('utf-8')).hexdigest()[:16]
+        hojas_recomendadas = [nombre for nombre in nombres_hojas if normalizar_columna(nombre) == 'stock']
         elegidas = st.multiselect(
             f'Hojas a procesar — {archivo.name}', options=nombres_hojas,
-            default=[], key=f'hojas_ingram_libres_{huella}',
+            default=hojas_recomendadas, key=f'hojas_ingram_libres_{huella}',
             help='Elige una o varias hojas. Solo se procesan las elegidas; no hay nombres ni hojas obligatorias.',
         )
         hojas_por_archivo[indice_archivo] = list(elegidas)
+        if hojas_recomendadas:
+            st.caption(f'Hoja sugerida: {", ".join(hojas_recomendadas)}. Puedes cambiar la selección.')
         if not elegidas:
             st.warning(f'Selecciona al menos una hoja de {archivo.name} para procesar.')
             seleccion_hojas_incompleta = True
