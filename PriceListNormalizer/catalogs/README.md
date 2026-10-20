@@ -18,5 +18,5 @@ provider,provider_code,mpn,_name
 No agregar precios, stock, clientes, imágenes ni otros datos comerciales.
 Para actualizar una base, reemplaza o agrega un CSV dentro de la carpeta del
 proveedor. Si un PN tiene más de un código, la aplicación no elige uno: lo deja
-pendiente para revisión.
+pendiente para revisión. Usa `plantilla.csv` como punto de partida.
 
