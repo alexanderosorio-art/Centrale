@@ -115,22 +115,7 @@ if archivos:
         st.info('No se pudo identificar un mismo mayorista en todos los nombres. Selecciona el proveedor manualmente.')
 catalogos_temporales = {}
 if proveedor in ('Intcomex', 'Ingram', 'Tecnoglobal', 'Nexsys'):
-    base_codigos = st.file_uploader(
-        'Base privada de códigos (opcional)', type=['xlsx', 'xls', 'csv'],
-        key=f'catalogo_privado_{proveedor}',
-        help='Úsala cuando la lista no trae código del mayorista. Solo se usa en este proceso y no se guarda ni se publica.',
-    )
-    if base_codigos:
-        from catalog_lookup import leer_catalogo_subido
-        try:
-            # En la interfaz normal es un archivo; el adaptador de pruebas
-            # puede entregarlo como lista de un elemento.
-            if isinstance(base_codigos, list):
-                base_codigos = base_codigos[0]
-            catalogos_temporales[proveedor] = leer_catalogo_subido(proveedor, base_codigos)
-            st.caption('Base privada lista para este proceso. No se guardará en la aplicación.')
-        except ValueError as error:
-            st.warning(str(error))
+    st.caption('La base pública de códigos de este mayorista se usa automáticamente cuando falta el SKU. Solo contiene PN, código y nombre opcional; no incluye precios ni stock.')
 if proveedor in PROVEEDORES_SIN_REGLAS:
     st.info(getattr(REGISTRO[proveedor], 'AVISO_PENDIENTE',
         f'{proveedor}: esta opción ya está disponible, pero todavía no tiene reglas '

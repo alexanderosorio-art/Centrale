@@ -18,6 +18,7 @@ CATALOGOS = {
     'Tecnoglobal': ('TECNOGLOBAL',),
     'Nexsys': ('NEXSYS',),
 }
+BUNDLED_CATALOG_DIR = Path(__file__).with_name('catalogs')
 _CATALOGOS_TEMPORALES = ContextVar('catalogos_temporales', default={})
 
 
@@ -80,7 +81,11 @@ def usar_catalogos_temporales(catalogos):
 
 
 def cargar_catalogo(provider):
-    """Carga un catálogo configurado, devolviendo ``None`` si no existe."""
+    """Carga un catálogo temporal, configurado o público, si existe.
+
+    Las bases incluidas en ``catalogs/`` solo contienen proveedor, PN, código
+    y nombre opcional. No llevan precios, stock ni información de clientes.
+    """
     temporal = _CATALOGOS_TEMPORALES.get().get(provider)
     if temporal is not None:
         return _validar_catalogo(temporal, provider)
@@ -93,9 +98,12 @@ def cargar_catalogo(provider):
         folder = os.environ.get("PRICE_LIST_CATALOG_DIR")
         if folder:
             candidates = sorted(Path(folder).glob("*.xlsx")) + sorted(Path(folder).glob("*.csv"))
+        else:
+            carpeta_publica = BUNDLED_CATALOG_DIR / provider
+            candidates = sorted(carpeta_publica.glob('*.csv')) + sorted(carpeta_publica.glob('*.csv.gz'))
     for candidate in candidates:
         try:
-            frame = (pd.read_csv(candidate, dtype=str) if candidate.suffix.lower() == ".csv"
+            frame = (pd.read_csv(candidate, dtype=str) if candidate.name.lower().endswith(('.csv', '.csv.gz'))
                      else pd.read_excel(candidate, dtype=str)).fillna("")
             provider_col = next((c for c in ("provider", "PROVIDER") if c in frame.columns), None)
             if not explicit and not provider_col:

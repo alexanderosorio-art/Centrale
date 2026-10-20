@@ -1,6 +1,8 @@
 import os
 import tempfile
 import unittest
+from pathlib import Path
+from unittest.mock import patch
 
 import pandas as pd
 
@@ -63,6 +65,25 @@ class CatalogLookupTests(unittest.TestCase):
                 else:
                     os.environ['PRICE_LIST_CATALOG_DIR'] = old
 
+    def test_bundled_catalog_is_used_without_upload(self):
+        with tempfile.TemporaryDirectory() as folder:
+            catalog_dir = Path(folder) / 'Ingram'
+            catalog_dir.mkdir()
+            pd.DataFrame([
+                {'provider': 'INGRAM MICRO', 'provider_code': '6327493',
+                 'mpn': 'PRIME A620M-K', '_name': 'ASUS PRIME A620M-K'},
+            ]).to_csv(catalog_dir / '001.csv', index=False)
+            old = os.environ.pop('PRICE_LIST_CATALOG_DIR', None)
+            try:
+                with patch('catalog_lookup.BUNDLED_CATALOG_DIR', Path(folder)):
+                    tabla = pd.DataFrame([{'provider_code': '', 'mpn': 'PRIME A620M-K', 'name': ''}])
+                    result, pending, _ = resolver_por_catalogo(tabla, 'Ingram')
+                self.assertFalse(pending)
+                self.assertEqual(result.loc[0, 'provider_code'], '6327493')
+            finally:
+                if old is not None:
+                    os.environ['PRICE_LIST_CATALOG_DIR'] = old
+
     def test_missing_price_is_dropped_for_pasted_rows(self):
         df = pd.DataFrame([
             {'name': 'Producto válido', 'provider_code': '', 'currency_unaware_cost_neto': '10,5', 'quantity': '2', 'mpn': '', 'brand': ''},
@@ -75,3 +96,4 @@ class CatalogLookupTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
