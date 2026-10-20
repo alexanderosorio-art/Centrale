@@ -187,6 +187,23 @@ class ProviderTests(unittest.TestCase):
         self.assertEqual(result.iloc[0].mpn, '90XB08CN-BDS0F0')
         self.assertEqual(result.iloc[0].brand, 'ASUS')
 
+    def test_ingram_brand_inventory_uses_list_price_and_boh(self):
+        headers = ['Brand', 'SKU', 'VDR_PARTNBR', 'DESCRIPCION', 'BOH', 'P.Lista']
+        rows = [
+            ['BENQ ACCESORIOS', '6855250', '5A.F7S14.005', 'BenQ DVY32 Camera', 6, 329.81],
+            ['MONITORES', '6873145', '9H.LKGLA.RBA', 'BAD BOX Monitor', 1, 632.48],
+            ['MONITORES', '6343148', '9H.LMWLB.QBA', 'Monitor BenQ', 0, 445.48],
+        ]
+        summary, result = procesar_archivos([excel(headers, rows)], FECHA, 'Ingram',
+                                            hojas_por_archivo={0: ['MATERIAL']})
+        self.assertEqual(summary.iloc[0]['Estado'], 'Procesado')
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result.iloc[0].provider_code, '6855250')
+        self.assertEqual(result.iloc[0].mpn, '5A.F7S14.005')
+        self.assertEqual(result.iloc[0].currency_unaware_cost_neto, 329.81)
+        self.assertEqual(result.iloc[0].quantity, 6)
+        self.assertEqual(result.iloc[0].brand, '')
+
     def test_exports_and_conflicts(self):
         _, result = procesar_archivos([excel(PLANTILLAS['Intcomex'], [['A', 12.75, 3], ['A', 12.75, 3], ['B', 5, 1], ['B', 6, 1]])], FECHA)
         clean, conflicts, duplicates = consolidar(result)

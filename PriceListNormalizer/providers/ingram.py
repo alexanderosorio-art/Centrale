@@ -14,6 +14,7 @@ STOCK_TRANSITOS = {
     'C REVENDEDOR', 'STOCK', 'TRANSITOS', 'ETA CD',
 }
 PN_QTY_PRECIO = {'PN', 'QTY', 'PRECIO'}
+INVENTARIO_MARCA = {'SKU', 'VDR_PARTNBR', 'DESCRIPCION', 'BOH', 'P.LISTA'}
 
 
 def _leer_stock_y_transitos(archivo, fecha, hojas_seleccionadas=None):
@@ -97,12 +98,56 @@ def _leer_pn_con_catalogo(archivo, fecha, hojas_seleccionadas=None):
     return pd.concat(salida, ignore_index=True), leidos, texto
 
 
+def _leer_inventario_marca(archivo, fecha, hojas_seleccionadas=None):
+    """Lee inventarios de marca de Ingram que sí informan precio de lista."""
+    nombres = hojas_seleccionadas if hojas_seleccionadas is not None else obtener_nombres_hojas(archivo)
+    salida, leidos, usadas = [], 0, []
+    for nombre in nombres:
+        bruto = leer_hoja_xlsx_con_datos(archivo, nombre)
+        for inicio, fila in bruto.iterrows():
+            columnas = [normalizar_texto_columna(v) for v in fila]
+            if not INVENTARIO_MARCA.issubset(columnas):
+                continue
+            if any(columnas.count(c) != 1 for c in INVENTARIO_MARCA):
+                raise ValueError(f'Ingram: encabezados duplicados en {nombre}.')
+            datos = bruto.iloc[inicio + 1:].dropna(how='all').copy()
+            leidos += len(datos)
+
+            def campo(columna):
+                return datos.iloc[:, columnas.index(columna)]
+
+            base = pd.DataFrame({
+                'SKU': campo('SKU'),
+                'venta neto usd': campo('P.LISTA'),
+                'stock actual': campo('BOH'),
+            }, index=datos.index)
+            resultado = normalizar_productos(base, fecha)
+            resultado['mpn'] = campo('VDR_PARTNBR').loc[resultado.index].fillna('').astype(str).str.strip()
+            resultado['name'] = campo('DESCRIPCION').loc[resultado.index].fillna('').astype(str).str.strip()
+            # "Brand" en este archivo es una categoría comercial, no una marca
+            # explícita del producto. Se conserva vacío para no inventar datos.
+            salida.append(resultado)
+            usadas.append(nombre)
+            break
+    archivo.seek(0)
+    if not salida:
+        return None
+    return pd.concat(salida, ignore_index=True), leidos, (
+        'Inventario de marca Ingram: se usa P.Lista y BOH. '
+        'OPEN BOX/BAD BOX se excluyen; brand queda vacío si no viene explícito.'
+    )
+
+
 def leer(archivo, fecha, moneda, permitir_pn=False, hojas_seleccionadas=None):
     if archivo.name.lower().endswith('.xlsx'):
         resultado = _leer_stock_y_transitos(archivo, fecha, hojas_seleccionadas)
+        if resultado is not None:
+            return resultado
+        resultado = _leer_inventario_marca(archivo, fecha, hojas_seleccionadas)
         if resultado is not None:
             return resultado
         resultado = _leer_pn_con_catalogo(archivo, fecha, hojas_seleccionadas)
         if resultado is not None:
             return resultado
     return leer_tablas(archivo, fecha, moneda, permitir_pn, hojas_seleccionadas, reglas=REGLAS)
+
