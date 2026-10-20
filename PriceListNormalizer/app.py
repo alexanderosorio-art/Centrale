@@ -26,10 +26,11 @@ if modo == 'Lista de stock':
         for indice, inventario in enumerate(inventarios):
             try:
                 nombres_hojas = obtener_nombres_hojas(inventario)
+                hojas_iniciales = nombres_hojas if len(nombres_hojas) == 1 else []
                 elegidas = st.multiselect(
                     f'Hojas a procesar — {inventario.name}',
                     options=nombres_hojas,
-                    default=[],
+                    default=hojas_iniciales,
                     key=f'hojas_stock_{indice}_{hashlib.sha256(inventario.getvalue()).hexdigest()[:12]}',
                     help='Selecciona la hoja del proveedor que quieres preparar.',
                 )
