@@ -7,7 +7,7 @@ COLUMNAS_CRM = ['provider_code', 'currency_unaware_cost_neto', 'currency', 'expi
                 'quantity', 'mpn', 'brand', 'name', 'condition', 'working_days_to_deliver']
 
 
-def procesar_stock(archivos):
+def procesar_stock(archivos, hojas_por_archivo=None):
     resultados, resumen = {}, []
     plantillas = {
         'INGRAM MICRO': ('Ingram', {'SKU', 'VDR_PARTNBR', 'DESCRIPCION', 'BOH'},
@@ -21,21 +21,34 @@ def procesar_stock(archivos):
         if isinstance(v, (int, float)) and float(v).is_integer():
             return str(int(v))
         return str(v).strip()
-    for archivo in archivos:
+    for numero, archivo in enumerate(archivos):
         try:
             if not archivo.name.lower().endswith('.xlsx'):
                 raise ValueError('El modo stock admite Excel .xlsx de la plantilla de inventario de marca.')
             hojas = obtener_nombres_hojas(archivo)
-            compatibles = [h for h in hojas if normalizar_texto_columna(h) in plantillas]
+            seleccionadas = (hojas_por_archivo or {}).get(numero)
+            if seleccionadas == []:
+                raise ValueError('Selecciona al menos una hoja de inventario.')
+            compatibles = seleccionadas if seleccionadas is not None else [
+                h for h in hojas if normalizar_texto_columna(h) in plantillas
+            ]
             if not compatibles:
-                raise ValueError('No hay hojas Ingram micro o Compusoluciones compatibles.')
+                raise ValueError('No hay hojas seleccionadas para procesar.')
         except Exception as error:
             resumen.append({'Archivo': archivo.name, 'Hoja': '', 'Estado': 'Error', 'Detalle': str(error)})
             continue
         for hoja in compatibles:
-            proveedor, requeridas, mapeo, cantidad = plantillas[normalizar_texto_columna(hoja)]
             try:
                 bruto = leer_hoja_xlsx_con_datos(archivo, hoja)
+                plantilla = plantillas.get(normalizar_texto_columna(hoja))
+                # Si la hoja cambió de nombre, se reconoce solo por encabezados.
+                if plantilla is None:
+                    plantilla = next((datos for datos in plantillas.values()
+                                      if any(datos[1].issubset({normalizar_texto_columna(v) for v in fila})
+                                             for _, fila in bruto.iterrows())), None)
+                if plantilla is None:
+                    raise ValueError('La hoja no corresponde a una plantilla de inventario configurada.')
+                proveedor, requeridas, mapeo, cantidad = plantilla
                 for indice, fila in bruto.iterrows():
                     cols = [normalizar_texto_columna(v) for v in fila]
                     if requeridas.issubset(cols):
@@ -67,3 +80,4 @@ def procesar_stock(archivos):
                 resumen.append({'Archivo': archivo.name, 'Hoja': hoja, 'Estado': 'Error', 'Detalle': str(error)})
         archivo.seek(0)
     return pd.DataFrame(resumen), {p: pd.concat(dfs, ignore_index=True) for p, dfs in resultados.items()}
+

@@ -33,6 +33,19 @@ class StockTests(unittest.TestCase):
             self.assertEqual(len(texto.splitlines()[0].split('\t')), 10)
         self.assertTrue((resultados['Compusoluciones'].provider_code == '').all())
 
+    def test_selected_stock_sheet_only(self):
+        f = BytesIO()
+        with pd.ExcelWriter(f, engine='openpyxl') as w:
+            pd.DataFrame([['001', 'PN-A', 'Normal', 1]],
+                columns=['SKU', 'VDR_PARTNBR', 'DESCRIPCION', 'BOH']).to_excel(w, sheet_name='Una hoja', index=False)
+            pd.DataFrame([['Modelo', 'PN-B', 2]],
+                columns=['Modelo', 'Número de Parte', 'Canales']).to_excel(w, sheet_name='Otra hoja', index=False)
+        f.name = 'stock.xlsx'
+        resumen, resultados = procesar_stock([f], hojas_por_archivo={0: ['Una hoja']})
+        self.assertEqual(list(resumen.Estado), ['Procesado'])
+        self.assertEqual(list(resultados), ['Ingram'])
+        self.assertEqual(list(resultados['Ingram'].provider_code), ['001'])
+
     def test_boxes_all_price_providers(self):
         f = BytesIO()
         with pd.ExcelWriter(f, engine='openpyxl') as w:
@@ -42,3 +55,4 @@ class StockTests(unittest.TestCase):
         _, df = procesar_archivos([f], date(2026, 10, 6), 'Coimco')
         self.assertEqual(list(df.provider_code), ['C'])
         self.assertEqual(len(excluir_cajas_abiertas(pd.DataFrame({'name': ['OPENBOX', 'BAD_BOX', 'BOX normal']}))), 1)
+

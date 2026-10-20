@@ -20,6 +20,22 @@ if modo == 'Lista de stock':
     from stock_reader import procesar_stock
     st.info('Resultados separados para Ingram y Compusoluciones. Se conservan las 10 columnas, sin completar precios, moneda, fecha ni otros datos ausentes. Esto no actualiza el CRM automáticamente.')
     inventarios = st.file_uploader('Subir inventarios de marca', type=['xlsx'], accept_multiple_files=True, key='stock_archivos')
+    hojas_stock_por_archivo = {}
+    if inventarios:
+        st.caption('Elige la hoja correspondiente al mayorista. Solo se procesarán las hojas que selecciones.')
+        for indice, inventario in enumerate(inventarios):
+            try:
+                nombres_hojas = obtener_nombres_hojas(inventario)
+                elegidas = st.multiselect(
+                    f'Hojas a procesar — {inventario.name}',
+                    options=nombres_hojas,
+                    default=[],
+                    key=f'hojas_stock_{indice}_{hashlib.sha256(inventario.getvalue()).hexdigest()[:12]}',
+                    help='Selecciona la hoja del proveedor que quieres preparar.',
+                )
+                hojas_stock_por_archivo[indice] = list(elegidas)
+            except Exception as error:
+                st.warning(f'No se pudieron leer las hojas de {inventario.name}: {error}')
     firma_stock = tuple((a.name, hashlib.sha256(a.getvalue()).hexdigest()) for a in inventarios)
     if st.session_state.get('firma_stock') != firma_stock:
         st.session_state['firma_stock'] = firma_stock
@@ -29,7 +45,11 @@ if modo == 'Lista de stock':
                 del st.session_state[clave]
     if st.button('Procesar inventario'):
         if inventarios:
-            st.session_state['resultado_stock'] = procesar_stock(inventarios)
+            if any(not hojas for hojas in hojas_stock_por_archivo.values()):
+                st.warning('Selecciona al menos una hoja de cada inventario antes de procesar.')
+            else:
+                st.session_state['resultado_stock'] = procesar_stock(
+                    inventarios, hojas_por_archivo=hojas_stock_por_archivo)
         else:
             st.warning('Sube un inventario primero.')
     if 'resultado_stock' in st.session_state:
