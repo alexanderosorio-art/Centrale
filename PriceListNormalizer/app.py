@@ -8,11 +8,12 @@ from exports import generar_excel, boton_copiar_excel
 from processing import detectar_proveedor_lote, moneda_predeterminada, procesar_archivos
 from providers import PROVEEDORES_CONFIGURADOS, PROVEEDORES_SIN_REGLAS, OPCIONES_PROVEEDORES, REGISTRO
 from providers.nexsys import es_catalogo
-from ui import iniciar_interfaz, AYUDA_ARCHIVOS, ayuda_proveedor
+from ui import iniciar_interfaz, mostrar_pasos, AYUDA_ARCHIVOS, ayuda_proveedor
 
 iniciar_interfaz()
 st.title('Price List Normalizer')
 st.caption('Ordena tus listas y prepara un único resultado para el CRM.')
+mostrar_pasos()
 with st.container(key='modo_discreto'):
     modo = st.selectbox('Tipo de procesamiento', ['Listas de precios', 'Lista de stock'], key='tipo_procesamiento',
         help='Listas de precios incluye costos y stock. Lista de stock prepara resultados separados sin completar precios ausentes. Siempre se excluyen OPEN BOX y BAD BOX.')
@@ -82,6 +83,10 @@ st.subheader('1. Agrega tus listas')
 archivos = st.file_uploader('Subir listas de precios del mismo proveedor',
                            type=['xlsx', 'xls', 'csv', 'pdf'], accept_multiple_files=True, help=AYUDA_ARCHIVOS)
 archivos = list(archivos)
+if archivos:
+    st.caption(f'{len(archivos)} archivo(s) cargado(s) · {sum(a.size if hasattr(a, "size") else len(a.getvalue()) for a in archivos) / 1048576:.1f} MB en total')
+else:
+    st.caption('Arrastra aquí tus archivos o selecciónalos desde tu computador. Puedes combinar varias listas del mismo mayorista.')
 import_hash_archivos = tuple(hashlib.sha256(a.getvalue()).hexdigest() for a in archivos)
 firma_deteccion = tuple((a.name, huella) for a, huella in zip(archivos, import_hash_archivos))
 proveedor_detectado, estado_deteccion = detectar_proveedor_lote([a.name for a in archivos])
@@ -112,7 +117,8 @@ if archivos:
             key='confirmar_proveedor_archivos',
         )
     else:
-        st.info('No se pudo identificar un mismo mayorista en todos los nombres. Selecciona el proveedor manualmente.')
+        if proveedor == 'Seleccionar...':
+            st.info('Selecciona el mayorista para continuar.')
 catalogos_temporales = {}
 if proveedor in ('Intcomex', 'Ingram', 'Tecnoglobal', 'Nexsys'):
     st.caption('La base pública de códigos de este mayorista se usa automáticamente cuando falta el SKU. Solo contiene PN, código y nombre opcional; no incluye precios ni stock.')
@@ -172,7 +178,9 @@ if proveedor == 'Nexsys':
         st.session_state[f'moneda_lista_{proveedor}'] = 'USD'
 st.subheader('2. Revisa moneda y vigencia')
 st.session_state.setdefault(f'moneda_lista_{proveedor}', moneda_predeterminada(proveedor))
-moneda_valor = st.selectbox(
+opciones_moneda, opciones_fecha = st.columns([1, 2])
+with opciones_moneda:
+    moneda_valor = st.selectbox(
     'Moneda de la lista', ['USD', 'CLP'],
     key=f'moneda_lista_{proveedor}',
     disabled=catalogo_nexsys,
@@ -182,8 +190,9 @@ if proveedor == 'Kepler':
     if any('PREVENTA' in normalizar_columna(a.name) for a in archivos):
         st.warning('Lista de preventa: se copiarán las cantidades indicadas en el archivo. No representan stock inmediato y no se asignará un plazo de entrega si no está informado.')
 permitir_pn = proveedor == 'Nexsys'  # Equivalencia confirmada por el usuario.
-fecha = st.date_input('Fecha de vigencia', value=calcular_expiry_date(),
-    help='Por defecto: hoy más 14 días, sin superar el fin de mes. La hora aplicada es 12:00. Puedes cambiar la fecha.')
+with opciones_fecha:
+    fecha = st.date_input('Fecha de vigencia', value=calcular_expiry_date(),
+        help='Por defecto: hoy más 14 días, sin superar el fin de mes. La hora aplicada es 12:00. Puedes cambiar la fecha.')
 
 # Evitar que se descarguen resultados de archivos, hojas, proveedor o fecha anteriores.
 firma = (
@@ -194,12 +203,14 @@ firma = (
 )
 if st.session_state.get('firma_lote') != firma:
     st.session_state.pop('lote', None)
+    st.session_state.pop('usar_vigencia_seleccionada', None)
     st.session_state['firma_lote'] = firma
     for clave in list(st.session_state):
         if clave.startswith(('elegir_sku_', 'resolver_conflicto_')):
             del st.session_state[clave]
 
 if st.button('Procesar listas', key='procesar_listas', type='primary',
+    use_container_width=True,
     help='Combina las listas del mayorista seleccionado. Los SKU con diferencias se pueden revisar en el resultado.'):
     if not archivos:
         st.warning('Primero debes subir una o más listas de precios.')
@@ -215,14 +226,40 @@ if st.button('Procesar listas', key='procesar_listas', type='primary',
     elif seleccion_hojas_incompleta:
         st.warning('Selecciona al menos una hoja válida antes de procesar.')
     else:
-        st.session_state['lote'] = procesar_archivos(
-            archivos, fecha, proveedor, moneda_valor, permitir_pn,
-            hojas_por_archivo=hojas_por_archivo,
-            catalogos_temporales=catalogos_temporales,
-        )
+        st.session_state.pop('usar_vigencia_seleccionada', None)
+        with st.spinner('Leyendo archivos y preparando el resultado para el CRM…'):
+            st.session_state['lote'] = procesar_archivos(
+                archivos, fecha, proveedor, moneda_valor, permitir_pn,
+                hojas_por_archivo=hojas_por_archivo,
+                catalogos_temporales=catalogos_temporales,
+            )
 
 if 'lote' in st.session_state:
     resumen, combinado = st.session_state['lote']
+    fecha_seleccionada = formatear_expiry_date(fecha)
+    vigencias_originales = combinado['expiry_date'].dropna().unique() if not combinado.empty else []
+    if any(str(v) != fecha_seleccionada for v in vigencias_originales):
+        if not st.session_state.get('usar_vigencia_seleccionada', False):
+            st.warning(
+                'La vigencia del proveedor (' + ', '.join(map(str, vigencias_originales)) +
+                ') es distinta de la seleccionada (' + fecha_seleccionada + '). '
+                'Puedes conservarla o aplicar tu fecha a todo el resultado.'
+            )
+            if st.button('Aplicar la fecha seleccionada: ' + fecha.strftime('%d-%m-%Y'),
+                         key='aplicar_vigencia_seleccionada'):
+                st.session_state['usar_vigencia_seleccionada'] = True
+                st.rerun()
+        else:
+            combinado = combinado.copy()
+            combinado['expiry_date'] = fecha_seleccionada
+            st.success('Se aplicó tu fecha seleccionada a la vista previa, la copia y el Excel descargable: ' + fecha_seleccionada)
+            if st.button('Restaurar vigencia del proveedor', key='restaurar_vigencia_proveedor'):
+                st.session_state.pop('usar_vigencia_seleccionada', None)
+                st.rerun()
+    indicador_archivos, indicador_productos, indicador_errores = st.columns(3)
+    indicador_archivos.metric('Archivos procesados', int((resumen['Estado'] != 'Error').sum()))
+    indicador_productos.metric('Productos válidos', len(combinado))
+    indicador_errores.metric('Archivos con errores', int((resumen['Estado'] == 'Error').sum()))
     vigencias = combinado['expiry_date'].dropna().unique() if not combinado.empty else []
     st.info('Vigencia aplicada: ' + (', '.join(map(str, vigencias)) if len(vigencias) else formatear_expiry_date(fecha)))
     if len(vigencias):

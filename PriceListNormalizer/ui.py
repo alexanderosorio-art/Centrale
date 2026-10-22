@@ -21,7 +21,7 @@ AYUDA_PROVEEDORES = {
     'Gerona': 'Precio Lista sin IVA, CodigoSKU como código y Modelo como PN. Stock ausente queda vacío. CLP por defecto.',
     'Coimco': 'Se revisan las hojas compatibles y cantidades con +. CLP por defecto.',
     'Fujicorp': 'Se consideran precios especiales según las reglas del proveedor. CLP por defecto. No se deduce marca desde títulos de hojas.',
-    'Otro': 'Puedes pegar una tabla y revisar sus columnas. Los archivos requieren reglas de lectura configuradas.',
+    'Otro': 'Los archivos requieren reglas de lectura configuradas para este proveedor.',
 }
 
 
@@ -33,6 +33,19 @@ def iniciar_interfaz():
     .block-container { max-width: 1080px; padding-top: 2.5rem; padding-bottom: 4rem; }
     h1, h2, h3 { font-family: Jost, "Trebuchet MS", sans-serif; font-weight: 500; }
     h1 { letter-spacing: -.025em; }
+    h1 { font-size: clamp(2rem, 5vw, 3rem) !important; margin-bottom: .25rem; }
+    h3 { font-size: 1.35rem !important; margin-top: 1.25rem; }
+    .pln-steps { display: flex; gap: .65rem; margin: 1.25rem 0 1.5rem; }
+    .pln-step { flex: 1; padding: .7rem .85rem; border: 1px solid #293241;
+        border-radius: 10px; color: #bdc7d6; background: #11161e; font-size: .9rem; }
+    .pln-step b { color: #d3e1fc; margin-right: .4rem; }
+    [data-testid="stFileUploaderDropzone"] { border: 1px dashed #53637b; padding: 1.5rem 1rem; }
+    [data-testid="stDataFrame"] { border-radius: 10px; overflow: hidden; }
+    [data-testid="stMetric"] { background: #11161e; border: 1px solid #293241;
+        border-radius: 10px; padding: .8rem 1rem; }
+    button[kind="primary"] { font-weight: 600; }
+    @media (max-width: 640px) { .pln-steps { gap: .35rem; }
+        .pln-step { padding: .6rem .4rem; font-size: .75rem; } }
     [data-testid="stCaptionContainer"] { color: #a4adbb; }
     [data-testid="stExpander"] { border-color: #273142; border-radius: 14px; }
     .st-key-modo_discreto [data-baseweb="select"] > div,
@@ -75,3 +88,12 @@ def iniciar_interfaz():
 def ayuda_proveedor(proveedor):
     base = 'El mayorista puede detectarse por el nombre del archivo. Puedes corregirlo aquí. '
     return base + AYUDA_PROVEEDORES.get(proveedor, 'Elige el mayorista de todas las listas que vas a combinar.')
+
+
+def mostrar_pasos():
+    st.markdown('''<nav class="pln-steps" aria-label="Pasos de conversión">
+    <div class="pln-step"><b>1</b> Carga tus archivos</div>
+    <div class="pln-step"><b>2</b> Revisa las opciones</div>
+    <div class="pln-step"><b>3</b> Copia o descarga</div>
+    </nav>''', unsafe_allow_html=True)
+
