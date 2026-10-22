@@ -101,6 +101,10 @@ def cargar_catalogo(provider):
         else:
             carpeta_publica = BUNDLED_CATALOG_DIR / provider
             candidates = sorted(carpeta_publica.glob('*.csv')) + sorted(carpeta_publica.glob('*.csv.gz'))
+            reemplazo = carpeta_publica / f'{provider}.csv'
+            if reemplazo.exists():
+                candidates = [reemplazo]
+    frames = []
     for candidate in candidates:
         try:
             frame = (pd.read_csv(candidate, dtype=str) if candidate.name.lower().endswith(('.csv', '.csv.gz'))
@@ -110,10 +114,10 @@ def cargar_catalogo(provider):
                 continue
             validado = _validar_catalogo(frame, provider)
             if validado is not None:
-                return validado
+                frames.append(validado)
         except Exception:
             continue
-    return None
+    return pd.concat(frames, ignore_index=True).drop_duplicates() if frames else None
 
 
 def resolver_por_catalogo(tabla, provider):

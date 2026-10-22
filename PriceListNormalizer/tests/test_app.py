@@ -12,9 +12,9 @@ class AppTests(unittest.TestCase):
     def test_stock_mode_name(self):
         source = Path(__file__).resolve().parents[1] / 'app.py'
         app = AppTest.from_file(str(source), default_timeout=20).run()
-        app.selectbox(key='tipo_procesamiento').select('Lista de stock').run()
+        app.radio(key='pagina').set_value('Bases de códigos').run()
         self.assertFalse(app.exception)
-        self.assertEqual(app.file_uploader[0].key, 'stock_archivos')
+        self.assertEqual(app.file_uploader[0].key, 'base_archivo')
 
     def test_contextual_help_and_short_interface(self):
         source = Path(__file__).resolve().parents[1] / 'app.py'

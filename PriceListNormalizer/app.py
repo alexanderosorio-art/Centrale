@@ -13,10 +13,12 @@ from ui import iniciar_interfaz, mostrar_pasos, AYUDA_ARCHIVOS, ayuda_proveedor
 iniciar_interfaz()
 st.title('Price List Normalizer')
 st.caption('Ordena tus listas y prepara un único resultado para el CRM.')
-mostrar_pasos()
-with st.container(key='modo_discreto'):
-    modo = st.selectbox('Tipo de procesamiento', ['Listas de precios', 'Lista de stock'], key='tipo_procesamiento',
-        help='Listas de precios incluye costos y stock. Lista de stock prepara resultados separados sin completar precios ausentes. Siempre se excluyen OPEN BOX y BAD BOX.')
+pagina = st.sidebar.radio('Página', ['Convertir listas', 'Bases de códigos'], key='pagina')
+if pagina == 'Bases de códigos':
+    from catalog_page import mostrar_bases
+    mostrar_bases()
+    st.stop()
+modo = 'Listas de precios'  # El modo stock se conserva para reactivarlo más adelante.
 if modo == 'Lista de stock':
     from stock_reader import procesar_stock
     st.info('Resultados separados para Ingram y Compusoluciones. Se conservan las 10 columnas, sin completar precios, moneda, fecha ni otros datos ausentes. Esto no actualiza el CRM automáticamente.')
@@ -119,7 +121,7 @@ if archivos:
     else:
         if proveedor == 'Seleccionar...':
             st.info('Selecciona el mayorista para continuar.')
-catalogos_temporales = {}
+catalogos_temporales = st.session_state.get('bases_codigos', {})
 if proveedor in ('Intcomex', 'Ingram', 'Tecnoglobal', 'Nexsys'):
     st.caption('La base pública de códigos de este mayorista se usa automáticamente cuando falta el SKU. Solo contiene PN, código y nombre opcional; no incluye precios ni stock.')
 if proveedor in PROVEEDORES_SIN_REGLAS:
