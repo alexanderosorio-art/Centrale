@@ -20,6 +20,26 @@ CATALOGOS = {
 }
 BUNDLED_CATALOG_DIR = Path(__file__).with_name('catalogs')
 _CATALOGOS_TEMPORALES = ContextVar('catalogos_temporales', default={})
+_PENDIENTES = ContextVar('codigos_pendientes', default=None)
+
+
+@contextmanager
+def capturar_pendientes():
+    referencias = []
+    token = _PENDIENTES.set(referencias)
+    try:
+        yield referencias
+    finally:
+        _PENDIENTES.reset(token)
+
+
+def registrar_pendientes(tabla, indices):
+    referencias = _PENDIENTES.get()
+    if referencias is not None:
+        for idx in indices:
+            valor = tabla.loc[idx].get('mpn', '')
+            if pd.notna(valor) and str(valor).strip():
+                referencias.append(str(valor).replace('\xa0', ' ').strip())
 
 
 def _norm(value):
@@ -131,6 +151,7 @@ def resolver_por_catalogo(tabla, provider):
     catalogo = cargar_catalogo(provider)
     if catalogo is None:
         faltantes = tabla.index[tabla["provider_code"].astype(str).str.strip().eq("")].tolist()
+        registrar_pendientes(tabla, faltantes)
         return tabla, faltantes, f"Catálogo privado de {provider} no configurado; no se inventaron SKU."
     code_col = next((c for c in ("provider_code", "PROVIDER_CODE", "provider code") if c in catalogo.columns), None)
     pn_col = next((c for c in ("mpn", "MPN", "pn", "PN") if c in catalogo.columns), None)
@@ -172,6 +193,7 @@ def resolver_por_catalogo(tabla, provider):
             pendientes.append(idx)
             if len(candidatos) > 1:
                 ambiguos += 1
+    registrar_pendientes(resultado, pendientes)
     detalle = f"Catálogo {provider}: {resueltos} SKU completados"
     if ambiguos:
         detalle += f"; {ambiguos} filas con varios códigos quedan pendientes"

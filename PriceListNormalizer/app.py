@@ -4,7 +4,7 @@ import pandas as pd
 import streamlit as st
 from common import calcular_expiry_date, formatear_expiry_date, normalizar_columna, consolidar, preparar_vista
 from file_readers import obtener_nombres_hojas
-from exports import generar_excel, boton_copiar_excel
+from exports import generar_excel, boton_copiar_excel, boton_copiar_pn
 from processing import detectar_proveedor_lote, moneda_predeterminada, procesar_archivos
 from providers import PROVEEDORES_CONFIGURADOS, PROVEEDORES_SIN_REGLAS, OPCIONES_PROVEEDORES, REGISTRO
 from providers.nexsys import es_catalogo
@@ -238,6 +238,14 @@ if st.button('Procesar listas', key='procesar_listas', type='primary',
 
 if 'lote' in st.session_state:
     resumen, combinado = st.session_state['lote']
+    pn_pendientes = resumen.attrs.get('pn_pendientes', [])
+    if pn_pendientes:
+        with st.expander(f'Códigos pendientes · {len(pn_pendientes)} PN', expanded=True):
+            st.caption('Estas referencias no tienen un código único en la base. Copia los PN para solicitar los códigos a la marca.')
+            st.text_area('PN para solicitar códigos', '\n'.join(pn_pendientes), height=180,
+                         key='vista_pn_pendientes_' + hashlib.sha256('\n'.join(pn_pendientes).encode()).hexdigest()[:12],
+                         disabled=True)
+            boton_copiar_pn(pn_pendientes)
     fecha_seleccionada = formatear_expiry_date(fecha)
     vigencias_originales = combinado['expiry_date'].dropna().unique() if not combinado.empty else []
     if any(str(v) != fecha_seleccionada for v in vigencias_originales):

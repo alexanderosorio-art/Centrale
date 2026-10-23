@@ -121,6 +121,25 @@ def generar_html_copia_excel(df):
     return '<html xmlns:x="urn:schemas-microsoft-com:office:excel"><head><meta charset="utf-8"></head><body><table xmlns:x="urn:schemas-microsoft-com:office:excel"><tbody>' + ''.join(filas) + '</tbody></table></body></html>'
 
 
+def boton_copiar_pn(pns):
+    texto = json.dumps('\n'.join(pns), ensure_ascii=False).replace('</', '<\\/')
+    components.html(f'''
+    <button id="copiar-pn" style="width:100%;min-height:44px;background:#161e2a;color:#f1f0ec;border:1px solid #53637b;border-radius:10px;cursor:pointer">Copiar solo los PN</button>
+    <script>
+    const texto = {texto};
+    document.getElementById('copiar-pn').onclick = async function() {{
+      try {{ await navigator.clipboard.writeText(texto); }}
+      catch (error) {{
+        const area = document.createElement('textarea');
+        area.value = texto; document.body.appendChild(area); area.select();
+        const ok = document.execCommand('copy'); area.remove();
+        if (!ok) {{ this.textContent = 'Selecciona y copia los PN de la lista'; return; }}
+      }}
+      this.textContent = 'PN copiados';
+    }};
+    </script>''', height=50)
+
+
 def boton_copiar_excel(df):
     html = json.dumps(generar_html_copia_excel(df), ensure_ascii=False).replace("</", "<\\/")
     components.html(
@@ -181,3 +200,4 @@ def boton_copiar_excel(df):
         """,
         height=50,
     )
+

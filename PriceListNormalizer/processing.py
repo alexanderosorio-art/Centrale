@@ -3,7 +3,7 @@ import re
 import pandas as pd
 from common import normalizar_columna, excluir_cajas_abiertas, normalizar_productos
 from providers import REGISTRO
-from catalog_lookup import resolver_por_catalogo, usar_catalogos_temporales
+from catalog_lookup import resolver_por_catalogo, usar_catalogos_temporales, capturar_pendientes
 
 def detectar_proveedores_archivo(nombre):
     # Comparar palabras completas; fechas y separadores pueden rodear el nombre.
@@ -31,11 +31,13 @@ def moneda_predeterminada(proveedor):
 def procesar_archivos(archivos, fecha, proveedor="Intcomex", moneda_valor=None, permitir_pn=False,
                      hojas_por_archivo=None, catalogos_temporales=None):
     """Procesa el lote; las bases cargadas por pantalla no se persisten."""
-    with usar_catalogos_temporales(catalogos_temporales):
-        return _procesar_archivos(
+    with usar_catalogos_temporales(catalogos_temporales), capturar_pendientes() as pendientes:
+        resumen, resultado = _procesar_archivos(
             archivos, fecha, proveedor, moneda_valor, permitir_pn,
             hojas_por_archivo=hojas_por_archivo,
         )
+        resumen.attrs['pn_pendientes'] = list(dict.fromkeys(pendientes))
+        return resumen, resultado
 
 
 def _procesar_archivos(archivos, fecha, proveedor="Intcomex", moneda_valor=None, permitir_pn=False,
