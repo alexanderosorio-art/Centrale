@@ -59,6 +59,10 @@ def _leer_pn_con_catalogo(archivo, fecha, hojas_seleccionadas=None):
         bruto = leer_hoja_xlsx_con_datos(archivo, nombre)
         for inicio, fila in bruto.iterrows():
             columnas = [normalizar_texto_columna(v) for v in fila]
+            # Consolidado por mayorista: la primera columna lleva el nombre
+            # Ingram en lugar de PN; sus valores son referencias del producto.
+            if {'INGRAM', 'QTY', 'PRECIO'}.issubset(columnas) and 'PN' not in columnas:
+                columnas = ['PN' if c == 'INGRAM' else c for c in columnas]
             if not PN_QTY_PRECIO.issubset(columnas):
                 continue
             if any(columnas.count(c) != 1 for c in PN_QTY_PRECIO):

@@ -26,6 +26,8 @@ def calcular_expiry_date():
     fin_de_mes = hoy.replace(
         day=ultimo_dia
     )
+    while fin_de_mes.weekday() >= 5:
+        fin_de_mes -= timedelta(days=1)
 
     if fecha_objetivo > fin_de_mes:
         return fin_de_mes
@@ -192,3 +194,4 @@ def preparar_vista(df):
             vista["expiry_date"], errors="coerce"
         ).dt.strftime("%d-%m-%Y  %H:%M")
     return vista
+

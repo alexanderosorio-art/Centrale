@@ -194,7 +194,7 @@ if proveedor == 'Kepler':
 permitir_pn = proveedor == 'Nexsys'  # Equivalencia confirmada por el usuario.
 with opciones_fecha:
     fecha = st.date_input('Fecha de vigencia', value=calcular_expiry_date(),
-        help='Por defecto: hoy más 14 días, sin superar el fin de mes. La hora aplicada es 12:00. Puedes cambiar la fecha.')
+        help='Por defecto: hoy más 14 días, sin superar el último día de lunes a viernes del mes. No considera feriados. La hora aplicada es 12:00. Puedes cambiar la fecha.')
 
 # Evitar que se descarguen resultados de archivos, hojas, proveedor o fecha anteriores.
 firma = (
