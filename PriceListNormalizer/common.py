@@ -17,7 +17,7 @@ def calcular_expiry_date(proveedor=None):
     hoy = datetime.now().date()
 
     fecha_objetivo = hoy + timedelta(days=14)
-    if proveedor in {'Coimco', 'Fujicorp', 'Kepler', 'Facciatech'}:
+    if proveedor in {'Coimco', 'Fujicorp', 'Kepler', 'Facciatech', 'Demco Ltda.', 'Gerona'}:
         return fecha_objetivo
 
     ultimo_dia = monthrange(

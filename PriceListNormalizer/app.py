@@ -195,7 +195,7 @@ permitir_pn = proveedor == 'Nexsys'  # Equivalencia confirmada por el usuario.
 with opciones_fecha:
     fecha = st.date_input('Fecha de vigencia', value=calcular_expiry_date(proveedor),
         key=f'vigencia_{proveedor}',
-        help='Coimco, Fujicorp, Kepler y Facciatech: hoy más 14 días, aunque pase al mes siguiente. Los demás: hoy más 14 días, limitado al último día de lunes a viernes del mes, sin considerar feriados. Hora: 12:00. Puedes cambiar la fecha.')
+        help='Coimco, Fujicorp, Kepler, Facciatech, Demco y Gerona: hoy más 14 días, aunque pase al mes siguiente. Los demás: hoy más 14 días, limitado al último día de lunes a viernes del mes, sin considerar feriados. Hora: 12:00. Puedes cambiar la fecha.')
 
 # Evitar que se descarguen resultados de archivos, hojas, proveedor o fecha anteriores.
 firma = (
