@@ -204,6 +204,24 @@ class ProviderTests(unittest.TestCase):
         self.assertEqual(result.iloc[0].quantity, 6)
         self.assertEqual(result.iloc[0].brand, '')
 
+    def test_ingram_aruba_reference_prices_and_pending_codes(self):
+        base = pd.DataFrame([
+            {'provider': 'INGRAM MICRO', 'provider_code': 'IM-1', 'mpn': 'PN-1'},
+        ])
+        archivo = excel(['PN', 'DESCRIPCIÓN', 'Stock', 'Precios Referenciales'], [
+            ['PN-1', 'Access point', 5, 359.9],
+            ['PN-2', 'Otro access point', 2, 158],
+            ['PN-1', 'BAD BOX access point', 1, 300],
+        ], second_sheet=True)
+        summary, result = procesar_archivos(
+            [archivo], FECHA, 'Ingram', hojas_por_archivo={0: ['MATERIAL']},
+            catalogos_temporales={'Ingram': base})
+        self.assertEqual(summary.iloc[0]['Estado'], 'Procesado')
+        self.assertEqual(list(result.provider_code), ['IM-1'])
+        self.assertEqual(result.iloc[0].currency_unaware_cost_neto, 359.9)
+        self.assertEqual(result.iloc[0].quantity, 5)
+        self.assertEqual(summary.attrs['pn_pendientes'], ['PN-2'])
+
     def test_exports_and_conflicts(self):
         _, result = procesar_archivos([excel(PLANTILLAS['Intcomex'], [['A', 12.75, 3], ['A', 12.75, 3], ['B', 5, 1], ['B', 6, 1]])], FECHA)
         clean, conflicts, duplicates = consolidar(result)

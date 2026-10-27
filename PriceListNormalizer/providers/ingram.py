@@ -8,7 +8,13 @@ from catalog_lookup import resolver_por_catalogo
 NOMBRE = 'Ingram'
 PATRON = r'(?:INGRAM|IM)'
 MONEDA = 'USD'
-REGLAS = ReglasTabla(nombre=NOMBRE, codigos=('MATERIAL/SKU', 'INGRAM MICRO SKU', 'IM SKU', 'MATERIAL', 'SKU INGRAM'), precios=('COSTO', *PRECIOS), part_numbers=(*PART_NUMBERS, 'PN'), lectura_acotada=True, requiere_descripcion=False)
+REGLAS = ReglasTabla(
+    nombre=NOMBRE,
+    codigos=('MATERIAL/SKU', 'INGRAM MICRO SKU', 'IM SKU', 'MATERIAL', 'SKU INGRAM'),
+    precios=('COSTO', 'PRECIOS REFERENCIALES', *PRECIOS),
+    part_numbers=(*PART_NUMBERS, 'PN'),
+    lectura_acotada=True, requiere_descripcion=False, catalogo_por_pn=True,
+)
 STOCK_TRANSITOS = {
     'VDR_NAME', 'SKU', 'VDR_PARTNB', 'MODELO', 'DESC TECNICA',
     'C REVENDEDOR', 'STOCK', 'TRANSITOS', 'ETA CD',
