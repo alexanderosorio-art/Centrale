@@ -21,12 +21,13 @@ def leer(archivo, fecha, moneda, permitir_pn=False, hojas_seleccionadas=None):
             if 'MODELO' not in columnas:
                 continue
             stock = next((c for c in ('CANTIDAD', 'STOCK') if c in columnas), None)
-            precio_regular = next((c for c in ('PRECIO DISTR.', 'PRECIO LISTA DISTR.') if c in columnas), None)
-            descuento = 'PRECIO CON DESCUENTO' if 'PRECIO CON DESCUENTO' in columnas else None
+            precio_regular = next((c for c in ('PRECIO DISTR.', 'PRECIO LISTA DISTR.', 'PRECIO') if c in columnas), None)
+            descuento = next((c for c in ('PRECIO CON DESCUENTO', 'PRECIO OFERTA') if c in columnas), None)
+            pn = next((c for c in ('NO. DE PARTE', 'PN') if c in columnas), 'MODELO')
             nombre_producto = next((c for c in ('NOMBRE PRODUCTO', 'DESCRIPCION') if c in columnas), None)
             if not all((stock, precio_regular, nombre_producto)):
                 continue
-            requeridas = {'MODELO', stock, precio_regular, nombre_producto}
+            requeridas = {'MODELO', stock, precio_regular, nombre_producto, pn}
             if descuento:
                 requeridas.add(descuento)
             if any(columnas.count(c) != 1 for c in requeridas):
@@ -45,7 +46,6 @@ def leer(archivo, fecha, moneda, permitir_pn=False, hojas_seleccionadas=None):
                 'stock actual': campo(stock).map(limpiar_numero),
             }, index=datos.index)
             resultado = normalizar_productos(base, fecha)
-            pn = 'NO. DE PARTE' if 'NO. DE PARTE' in columnas else 'MODELO'
             resultado['mpn'] = campo(pn).loc[resultado.index].fillna('').astype(str).str.strip()
             resultado['name'] = campo(nombre_producto).loc[resultado.index].fillna('').astype(str).str.strip()
             resultado['currency'] = 'USD'
@@ -57,8 +57,8 @@ def leer(archivo, fecha, moneda, permitir_pn=False, hojas_seleccionadas=None):
     if not salida:
         raise ValueError('Compu Soluciones: no se encontraron hojas con Modelo, stock y precio compatibles.')
     return pd.concat(salida, ignore_index=True), leidos, (
-        'Compu Soluciones: Modelo como provider_code; No. de Parte como PN cuando existe. '
-        'Se usa Precio con descuento si está informado; de lo contrario, Precio Distribuidor. '
+        'Compu Soluciones: Modelo como provider_code; No. de Parte o PN como número de parte cuando existe. '
+        'Se usa el menor precio positivo entre el regular y Precio con descuento/Precio Oferta. '
         'Marca no inferida. Hojas procesadas: ' + ', '.join(usadas)
     )
 
