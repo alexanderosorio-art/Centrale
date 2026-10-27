@@ -42,6 +42,21 @@ def excel(headers, rows, name='lista.xlsx', second_sheet=False):
 
 
 class ProviderTests(unittest.TestCase):
+    def test_shared_headers_and_provider_price_priority(self):
+        for provider in ['Ingram', 'Coimco']:
+            summary, result = procesar_archivos([excel(
+                ['PRODUCT ID', 'MPN', 'Product Name', 'Disponible', 'Precio Especial', 'Transito'],
+                [['COD-1', 'PN-1', 'Producto', 2, 12.5, 100],
+                 ['COD-2', 'PN-2', 'Producto', 0, 15, 100]])], FECHA, provider)
+            self.assertEqual(summary.iloc[0]['Estado'], 'Procesado')
+            self.assertEqual(list(result.provider_code), ['COD-1'])
+            self.assertEqual(result.iloc[0].quantity, 2)
+            self.assertEqual(result.iloc[0].mpn, 'PN-1')
+        _, result = procesar_archivos([excel(
+            ['CODIGO', 'PRECIO', 'Precio Especial', 'Disponible', 'Detalle'],
+            [['A', 20, 10, 2, 'Producto']])], FECHA, 'Coimco')
+        self.assertEqual(result.iloc[0].currency_unaware_cost_neto, 20)
+
     def test_all_configured_providers_and_currency_override(self):
         for provider, headers in PLANTILLAS.items():
             for currency in (None, 'USD', 'CLP'):

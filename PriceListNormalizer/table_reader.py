@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from common import normalizar_texto_columna, normalizar_productos
 from file_readers import obtener_nombres_hojas, leer_hoja_xlsx_con_datos
 from catalog_lookup import resolver_por_catalogo
+from header_aliases import ENCABEZADOS, ampliar_encabezados
 
 PRECIOS = ('PV OFERTA C/U', 'PRECIO UNITARIO US$', 'PRECIO USD (S/IVA)', 'PRECIOS USD', 'PRECIO USD$',
            'VALOR USD + IVA', 'PRECIO ESPECIAL NETO UNIT. CENTRALE', 'VENTA NETO USD',
@@ -32,9 +33,9 @@ class ReglasTabla:
 
 
 def leer_tablas(archivo, fecha, moneda, permitir_pn=False, hojas_seleccionadas=None, *, reglas):
-    codigos = reglas.codigos
-    precios = reglas.precios
-    stocks = reglas.stocks
+    codigos = ampliar_encabezados(reglas.codigos, 'codigo')
+    precios = ampliar_encabezados(reglas.precios, 'precio')
+    stocks = ampliar_encabezados(reglas.stocks, 'stock')
     def norm(v):
         return normalizar_texto_columna(v)
     def numero(v):
@@ -116,7 +117,7 @@ def leer_tablas(archivo, fecha, moneda, permitir_pn=False, hojas_seleccionadas=N
         candidatos = []
         for i, row in bruto.iterrows():
             cols = list(row.map(norm))
-            opciones_pn = reglas.part_numbers
+            opciones_pn = ampliar_encabezados(reglas.part_numbers, 'pn')
             pn = next((c for c in opciones_pn if c in cols), None)
             cod = next((c for c in codigos if c in cols), None)
             usar_catalogo = not cod and bool(pn) and reglas.catalogo_por_pn
@@ -125,7 +126,7 @@ def leer_tablas(archivo, fecha, moneda, permitir_pn=False, hojas_seleccionadas=N
             stk = next((c for c in stocks if c in cols), None)
             ofertas = [c for c in reglas.ofertas if c in cols]
             precio_neto = next((c for c in precios if c in cols), None)
-            descripcion = next((c for c in cols if c in ['DESCRIPTION', 'MKT NAME', 'MODELO']
+            descripcion = next((c for c in cols if c in ENCABEZADOS['nombre']
                                 or c.startswith('DESCRIPCI')), None)
             if reglas.descripcion_exacta:
                 descripcion = reglas.descripcion_exacta if reglas.descripcion_exacta in cols else None
