@@ -13,10 +13,12 @@ def excluir_cajas_abiertas(df):
                                       for v in fila if pd.notna(v)), axis=1)
     return df.loc[~excluir].copy()
 
-def calcular_expiry_date():
+def calcular_expiry_date(proveedor=None):
     hoy = datetime.now().date()
 
     fecha_objetivo = hoy + timedelta(days=14)
+    if proveedor in {'Coimco', 'Fujicorp', 'Kepler', 'Facciatech'}:
+        return fecha_objetivo
 
     ultimo_dia = monthrange(
         hoy.year,

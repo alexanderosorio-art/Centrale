@@ -193,8 +193,9 @@ if proveedor == 'Kepler':
         st.warning('Lista de preventa: se copiarán las cantidades indicadas en el archivo. No representan stock inmediato y no se asignará un plazo de entrega si no está informado.')
 permitir_pn = proveedor == 'Nexsys'  # Equivalencia confirmada por el usuario.
 with opciones_fecha:
-    fecha = st.date_input('Fecha de vigencia', value=calcular_expiry_date(),
-        help='Por defecto: hoy más 14 días, sin superar el último día de lunes a viernes del mes. No considera feriados. La hora aplicada es 12:00. Puedes cambiar la fecha.')
+    fecha = st.date_input('Fecha de vigencia', value=calcular_expiry_date(proveedor),
+        key=f'vigencia_{proveedor}',
+        help='Coimco, Fujicorp, Kepler y Facciatech: hoy más 14 días, aunque pase al mes siguiente. Los demás: hoy más 14 días, limitado al último día de lunes a viernes del mes, sin considerar feriados. Hora: 12:00. Puedes cambiar la fecha.')
 
 # Evitar que se descarguen resultados de archivos, hojas, proveedor o fecha anteriores.
 firma = (
