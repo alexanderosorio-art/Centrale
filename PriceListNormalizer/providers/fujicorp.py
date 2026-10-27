@@ -9,7 +9,7 @@ PATRON = r'FUJICORP'
 MONEDA = 'CLP'
 REGLAS = ReglasTabla(
     nombre=NOMBRE, codigos=('CODIGO FUJICORP', 'CODIGO', 'SKU'),
-    precios=('NETO', *PRECIOS), moneda_fija='CLP', preferir_oferta=True,
+    precios=('NETO', 'PMIN', *PRECIOS), moneda_fija='CLP', preferir_oferta=True,
 )
 
 
