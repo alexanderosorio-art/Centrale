@@ -21,6 +21,8 @@ DELL = {'SKU', 'PN DELL', 'DESCRIPCION', 'PRECIO USD', 'STOCK REF'}
 HP_SEMANAL = {'LOCAL SKU', 'MPN', 'PRODUCT NAME (LOCAL)', 'STOCK', 'PRECIO NORMAL'}
 LOGITECH = {'SKU XCL', 'LOGITECH PART NUMBER', 'DESCRIPCION', 'STOCK', 'COSTO NETO USD'}
 CLIENTES_ESTRATEGICOS = {'PRODUCT ID', 'MPN', 'PRODUCT NAME', 'MARCA', 'STOCK', 'PRECIO ESPECIAL NETO UNIT. CLIENTES ESTRATEGICOS'}
+FORZA = {'SKU', 'MPN', 'DETALLE', 'DISPONIBLE', 'PRECIO ESPECIAL'}
+NEXXT = {'PRODUCT ID', 'MPN', 'PRODUCT NAME', 'DISPONIBLE', 'PRECIO ESPECIAL'}
 
 
 def leer_intcomex_xlsx(archivo):
@@ -36,6 +38,8 @@ def leer_intcomex_xlsx(archivo):
                   or PRECIOS_TOP.issubset({normalizar_texto_columna(v) for v in fila})
                   or DELL.issubset({normalizar_texto_columna(v) for v in fila})
                   or HP_SEMANAL.issubset({normalizar_texto_columna(v) for v in fila})
+                  or FORZA.issubset({normalizar_texto_columna(v) for v in fila})
+                  or NEXXT.issubset({normalizar_texto_columna(v) for v in fila})
                   or CLIENTES_ESTRATEGICOS.issubset({normalizar_texto_columna(v) for v in fila})]
     if candidatos:
         encabezado = candidatos[0]
@@ -47,6 +51,23 @@ def leer_intcomex_xlsx(archivo):
     datos = bruto.iloc[encabezado + 1:].dropna(how='all').copy()
     datos.columns = bruto.iloc[encabezado]
     return datos
+
+
+def procesar_disponible_especial(df, fecha, plantilla):
+    columnas = [normalizar_texto_columna(c) for c in df.columns]
+    requeridas = FORZA if plantilla == 'Forza' else NEXXT
+    if any(columnas.count(c) != 1 for c in requeridas):
+        raise ValueError(f'Intcomex {plantilla}: encabezados duplicados.')
+    def campo(c):
+        return df.iloc[:, columnas.index(c)]
+    codigo, nombre = ('SKU', 'DETALLE') if plantilla == 'Forza' else ('PRODUCT ID', 'PRODUCT NAME')
+    base = pd.DataFrame({'SKU': campo(codigo),
+                         'venta neto usd': campo('PRECIO ESPECIAL').map(limpiar_numero),
+                         'stock actual': pd.to_numeric(campo('DISPONIBLE'), errors='coerce')}, index=df.index)
+    resultado = normalizar_productos(base, fecha)
+    resultado['mpn'] = campo('MPN').loc[resultado.index].fillna('').astype(str).str.strip()
+    resultado['name'] = campo(nombre).loc[resultado.index].fillna('').astype(str).str.strip()
+    return resultado
 
 
 def procesar_intcomex_asus(df, expiry_date):
@@ -303,7 +324,11 @@ def leer(archivo, fecha, moneda, permitir_pn=False, hojas_seleccionadas=None):
         archivo.seek(0)
         df = pd.read_excel(archivo, header=encabezado)
     columnas = {normalizar_texto_columna(c) for c in df.columns}
-    if CLIENTES_ESTRATEGICOS.issubset(columnas):
+    if FORZA.issubset(columnas) or NEXXT.issubset(columnas):
+        plantilla = 'Forza' if FORZA.issubset(columnas) else 'Nexxt'
+        resultado = procesar_disponible_especial(df, fecha, plantilla)
+        return resultado, len(df), f'Intcomex {plantilla}: Precio Especial y solo Disponible; Tránsito no se suma. Marca no inferida.'
+    elif CLIENTES_ESTRATEGICOS.issubset(columnas):
         resultado = procesar_clientes_estrategicos(df, fecha, archivo.name)
         return resultado, len(df), 'Intcomex: Product ID como código; precio especial Clientes Estratégicos. MPN, nombre y marca explícitos. Se conserva la vigencia indicada en el nombre del archivo, aunque esté vencida.'
     elif LOGITECH.issubset(columnas):
