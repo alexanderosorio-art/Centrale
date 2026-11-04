@@ -23,6 +23,8 @@ LOGITECH = {'SKU XCL', 'LOGITECH PART NUMBER', 'DESCRIPCION', 'STOCK', 'COSTO NE
 CLIENTES_ESTRATEGICOS = {'PRODUCT ID', 'MPN', 'PRODUCT NAME', 'MARCA', 'STOCK', 'PRECIO ESPECIAL NETO UNIT. CLIENTES ESTRATEGICOS'}
 FORZA = {'SKU', 'MPN', 'DETALLE', 'DISPONIBLE', 'PRECIO ESPECIAL'}
 NEXXT = {'PRODUCT ID', 'MPN', 'PRODUCT NAME', 'DISPONIBLE', 'PRECIO ESPECIAL'}
+HONOR_APORTES = {'ESTATUS', 'FECHA TERMINO', 'PART NUMBER', 'SKU TRAX',
+                 'DESCRIPCION INTCOMEX', 'COSTO OFERTA SUGERIDO'}
 
 
 def leer_intcomex_xlsx(archivo):
@@ -40,6 +42,7 @@ def leer_intcomex_xlsx(archivo):
                   or HP_SEMANAL.issubset({normalizar_texto_columna(v) for v in fila})
                   or FORZA.issubset({normalizar_texto_columna(v) for v in fila})
                   or NEXXT.issubset({normalizar_texto_columna(v) for v in fila})
+                  or HONOR_APORTES.issubset({normalizar_texto_columna(v) for v in fila})
                   or CLIENTES_ESTRATEGICOS.issubset({normalizar_texto_columna(v) for v in fila})]
     if candidatos:
         encabezado = candidatos[0]
@@ -51,6 +54,33 @@ def leer_intcomex_xlsx(archivo):
     datos = bruto.iloc[encabezado + 1:].dropna(how='all').copy()
     datos.columns = bruto.iloc[encabezado]
     return datos
+
+
+def procesar_aportes_honor(df):
+    columnas = [normalizar_texto_columna(c) for c in df.columns]
+    if any(columnas.count(c) != 1 for c in HONOR_APORTES):
+        raise ValueError('Intcomex HONOR: encabezados duplicados.')
+    def campo(c):
+        return df.iloc[:, columnas.index(c)]
+    costos = campo('COSTO OFERTA SUGERIDO').map(limpiar_numero)
+    fechas = pd.to_datetime(campo('FECHA TERMINO'), errors='coerce', dayfirst=True)
+    codigos = campo('SKU TRAX').fillna('').astype(str).str.strip()
+    validos = (campo('ESTATUS').map(normalizar_texto_columna).eq('VIGENTE')
+               & codigos.ne('') & costos.gt(0) & fechas.notna())
+    resultado = pd.DataFrame({
+        'provider_code': codigos,
+        'currency_unaware_cost_neto': costos,
+        'currency': 'CLP',
+        'expiry_date': fechas.dt.strftime('%d-%m-%Y  12:00'),
+        'quantity': '',
+        'mpn': campo('PART NUMBER').fillna('').astype(str).str.strip(),
+        'brand': '',
+        'name': campo('DESCRIPCION INTCOMEX').fillna('').astype(str).str.strip(),
+        'condition': '',
+        'working_days_to_deliver': '',
+    }, index=df.index).loc[validos].copy()
+    resultado.attrs['currency_policy'] = 'SOURCE'
+    return resultado
 
 
 def procesar_disponible_especial(df, fecha, plantilla):
@@ -324,7 +354,11 @@ def leer(archivo, fecha, moneda, permitir_pn=False, hojas_seleccionadas=None):
         archivo.seek(0)
         df = pd.read_excel(archivo, header=encabezado)
     columnas = {normalizar_texto_columna(c) for c in df.columns}
-    if FORZA.issubset(columnas) or NEXXT.issubset(columnas):
+    if HONOR_APORTES.issubset(columnas):
+        resultado = procesar_aportes_honor(df)
+        return resultado, len(df), ('Intcomex HONOR: solo VIGENTE; costo oferta Sugerido en CLP; '
+                                    'stock vacío; vigencia desde Fecha Término a las 12:00.')
+    elif FORZA.issubset(columnas) or NEXXT.issubset(columnas):
         plantilla = 'Forza' if FORZA.issubset(columnas) else 'Nexxt'
         resultado = procesar_disponible_especial(df, fecha, plantilla)
         return resultado, len(df), f'Intcomex {plantilla}: Precio Especial y solo Disponible; Tránsito no se suma. Marca no inferida.'
