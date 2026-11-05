@@ -16,8 +16,8 @@ def procesar_kepler(df, fecha, nombre, moneda_valor):
     def buscar(opciones):
         return next((c for c in opciones if c in df.columns), None)
     codigo = buscar(['SKU', 'SKU/LINK', 'CODIGO'])
-    precio = buscar(['DOLAR', 'VALOR USD', 'U$ NETO', 'VALOR'])
-    stock = buscar(['STOCK', 'QTY'])
+    precio = buscar(['DOLAR', 'VALOR USD', 'U$ NETO', 'VALOR', 'PRECIO', 'NETO'])
+    stock = buscar(['STOCK', 'QTY', 'UNIDADES'])
     # Plantillas revisadas: Vertagear C y D-Link B contienen cantidades sin encabezado.
     if stock is None and {'FAMILIA/LINK', 'SKU', 'U$ NETO'}.issubset(df.columns) and len(df.columns) > 2:
         stock = df.columns[2] if df.columns[2].startswith('UNNAMED:') else None
@@ -35,7 +35,7 @@ def procesar_kepler(df, fecha, nombre, moneda_valor):
     if 'LLEGADA' in df.columns:
         fuente = fuente.loc[df['LLEGADA'].astype(str).map(normalizar_columna).eq('EN STOCK')]
     resultado = normalizar_productos(fuente, fecha)
-    resultado['currency'] = moneda_valor if precio == 'VALOR' else 'USD'
+    resultado['currency'] = moneda_valor if precio in ('VALOR', 'PRECIO', 'NETO') else 'USD'
     # Estos campos solo se copian cuando Kepler los entrega explícitamente.
     # No se deducen marca, PN ni descripción desde SKU u otros datos.
     columnas_producto = {
@@ -75,13 +75,24 @@ def leer(archivo, fecha, moneda, permitir_pn=False, hojas_seleccionadas=None):
         df = leer_csv(archivo)
     else:
         bruto = pd.read_excel(archivo, header=None)
-        candidatos = [i for i, row in bruto.iterrows() if set(row.map(normalizar_columna)) & {'SKU', 'SKU/LINK', 'CODIGO'} and set(row.map(normalizar_columna)) & {'DOLAR', 'VALOR USD', 'U$ NETO', 'VALOR'}]
+        candidatos = [i for i, row in bruto.iterrows() if set(row.map(normalizar_columna)) & {'SKU', 'SKU/LINK', 'CODIGO'} and set(row.map(normalizar_columna)) & {'DOLAR', 'VALOR USD', 'U$ NETO', 'VALOR', 'PRECIO', 'NETO'}]
         if not candidatos:
             raise ValueError('No se encontró un encabezado Kepler compatible.')
         archivo.seek(0)
         df = pd.read_excel(archivo, header=candidatos[0])
+        columnas = {normalizar_columna(c) for c in df.columns}
+        # Plantilla LG: la segunda columna SKU contiene solo enlaces.
+        # pandas la distingue como SKU.1; el código se toma del primer SKU.
+        if {'FAMILIA LG', 'UNIDADES', 'SKU', 'DESCRIPCION', 'NETO'}.issubset(columnas):
+            titulo = ' '.join(bruto.fillna('').astype(str).to_numpy().ravel())
+            if 'PRECIOS EN PESOS' not in normalizar_columna(titulo):
+                raise ValueError('Kepler LG: no se pudo confirmar la moneda indicada en el archivo.')
+            moneda = 'CLP'
     resultado = procesar_kepler(df, fecha, archivo.name, moneda)
+    if archivo.name.lower().endswith(('.xlsx', '.xls')) and 'FAMILIA LG' in columnas:
+        resultado.attrs['currency_policy'] = 'SOURCE'
     detalle = 'Se excluyen códigos vacíos, precios inválidos y stock no positivo.'
     if 'PREVENTA' in normalizar_columna(archivo.name):
         detalle += ' Preventa: las cantidades provienen del archivo; no indican disponibilidad inmediata. No se asignó plazo de entrega.'
     return resultado, len(df), detalle
+
