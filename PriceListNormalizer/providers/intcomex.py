@@ -312,15 +312,20 @@ def procesar_intcomex_logitech(df, fecha):
     return resultado
 
 
+def vigencia_archivo(fecha, nombre):
+    meses = {'ENERO': 1, 'FEBRERO': 2, 'MARZO': 3, 'ABRIL': 4, 'MAYO': 5, 'JUNIO': 6,
+             'JULIO': 7, 'AGOSTO': 8, 'SEPTIEMBRE': 9, 'OCTUBRE': 10, 'NOVIEMBRE': 11, 'DICIEMBRE': 12}
+    vigencia = re.search(r'\bHASTA\s+(?:EL\s+)?(\d{1,2})\s+(?:DE\s+)?(' + '|'.join(meses) + r')\s+(?:DE\s+)?(\d{4})\b', normalizar_texto_columna(nombre))
+    if vigencia:
+        fecha = date(int(vigencia[3]), meses[vigencia[2]], int(vigencia[1]))
+    return fecha
+
+
 def procesar_clientes_estrategicos(df, fecha, nombre):
     cols = [normalizar_texto_columna(c) for c in df.columns]
     if any(cols.count(c) != 1 for c in CLIENTES_ESTRATEGICOS):
         raise ValueError('Intcomex: encabezados de clientes estratégicos duplicados.')
-    meses = {'ENERO': 1, 'FEBRERO': 2, 'MARZO': 3, 'ABRIL': 4, 'MAYO': 5, 'JUNIO': 6,
-             'JULIO': 7, 'AGOSTO': 8, 'SEPTIEMBRE': 9, 'OCTUBRE': 10, 'NOVIEMBRE': 11, 'DICIEMBRE': 12}
-    vigencia = re.search(r'\bHASTA\s+(\d{1,2})\s+(?:DE\s+)?(' + '|'.join(meses) + r')\s+(?:DE\s+)?(\d{4})\b', normalizar_texto_columna(nombre))
-    if vigencia:
-        fecha = date(int(vigencia[3]), meses[vigencia[2]], int(vigencia[1]))
+    fecha = vigencia_archivo(fecha, nombre)
     def campo(c):
         return df.iloc[:, cols.index(c)]
     base = pd.DataFrame({'SKU': campo('PRODUCT ID'),
@@ -354,7 +359,21 @@ def leer(archivo, fecha, moneda, permitir_pn=False, hojas_seleccionadas=None):
         archivo.seek(0)
         df = pd.read_excel(archivo, header=encabezado)
     columnas = {normalizar_texto_columna(c) for c in df.columns}
-    if HONOR_APORTES.issubset(columnas):
+    precios_estrategicos = {'PRECIO ESPECIAL NETO UNIT',
+                           'PRECIO ESPECIAL NETO UNIT. USD CLIENTES ESTRATEGICOS',
+                           'PRECIO ESPECIAL NETO UNIT. CLIENTES ESTRATEGICOS'}
+    if ('SKU' in columnas and precios_estrategicos.intersection(columnas)
+            and {'MPN', 'PART NUMBER (MPN)'}.intersection(columnas)):
+        from dataclasses import replace
+        reglas = replace(REGLAS,
+            precios=tuple(sorted(precios_estrategicos)),
+            part_numbers=('MPN', 'PART NUMBER (MPN)'),
+            lectura_acotada=True)
+        resultado, leidos, detalle = leer_tablas(
+            archivo, vigencia_archivo(fecha, archivo.name), moneda,
+            permitir_pn, hojas_seleccionadas, reglas=reglas)
+        return resultado, leidos, detalle + '. Intcomex Clientes Estratégicos: precio especial; vigencia conservada desde el nombre del archivo.'
+    elif HONOR_APORTES.issubset(columnas):
         resultado = procesar_aportes_honor(df)
         return resultado, len(df), ('Intcomex HONOR: solo VIGENTE; costo oferta Sugerido en CLP; '
                                     'stock vacío; vigencia desde Fecha Término a las 12:00.')
