@@ -13,7 +13,11 @@ from ui import iniciar_interfaz, mostrar_pasos, AYUDA_ARCHIVOS, ayuda_proveedor
 iniciar_interfaz()
 st.title('Price List Normalizer')
 st.caption('Ordena tus listas y prepara un único resultado para el CRM.')
-pagina = st.sidebar.radio('Página', ['Convertir listas', 'Bases de códigos'], key='pagina')
+pagina = st.sidebar.radio('Página', ['Convertir listas', 'Bases de códigos', 'Estadísticas'], key='pagina')
+if pagina == 'Estadísticas':
+    from stats_page import mostrar_estadisticas
+    mostrar_estadisticas()
+    st.stop()
 if pagina == 'Bases de códigos':
     from catalog_page import mostrar_bases
     mostrar_bases()
@@ -236,6 +240,8 @@ if st.button('Procesar listas', key='procesar_listas', type='primary',
                 hojas_por_archivo=hojas_por_archivo,
                 catalogos_temporales=catalogos_temporales,
             )
+            from stats_page import registrar_proceso
+            registrar_proceso(st.session_state['lote'][0], proveedor)
 
 if 'lote' in st.session_state:
     resumen, combinado = st.session_state['lote']
