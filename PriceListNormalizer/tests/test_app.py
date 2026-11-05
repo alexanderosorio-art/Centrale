@@ -1,6 +1,7 @@
 """Smoke test de Streamlit con cargas sintéticas, sin navegador ni credenciales."""
 import sys
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 from streamlit.testing.v1 import AppTest
 
@@ -9,6 +10,11 @@ from test_providers import excel, PLANTILLAS
 
 
 class AppTests(unittest.TestCase):
+    def setUp(self):
+        # Las pruebas sintéticas no deben incrementar estadísticas reales.
+        self.addCleanup(patch.stopall)
+        patch('usage_history.disponible', return_value=False).start()
+
     def test_stock_mode_name(self):
         source = Path(__file__).resolve().parents[1] / 'app.py'
         app = AppTest.from_file(str(source), default_timeout=20).run()
