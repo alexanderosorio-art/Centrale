@@ -111,11 +111,14 @@ def leer_catalogo(archivo, fecha, hojas_seleccionadas=None):
                     if all(c is not None for c in (stk, pre, nom)):
                         promo = [cols.index(c) for c in ofertas if c in cols]
                         if clave == 'HP POLY':
-                            # Plantilla validada: única columna entre inventario y precio.
-                            # Su título/fecha cambia; no depende del texto del encabezado.
-                            if pre != stk + 2:
-                                raise ValueError('HP Poly: cambió la posición de la columna promocional; requiere revisión.')
-                            promo.append(stk + 1)
+                            # El título y la posición cambian entre ediciones.
+                            explicitas = [i for i, c in enumerate(cols) if c.startswith('PRECIO OFERTA')]
+                            if len(explicitas) == 1:
+                                promo.append(explicitas[0])
+                            elif not explicitas and pre == stk + 2:
+                                promo.append(stk + 1)
+                            else:
+                                raise ValueError('HP Poly: no se pudo identificar una única columna promocional.')
                         esquema = (cod, stk, pre, nom, promo, buscar(('MONEDA',)),
                                    buscar(('MARCA',)), buscar(('PRECIO PROMO NETO', 'PRECIO PROMO')),
                                    buscar(('UNIDADES PROMO',)))
@@ -125,6 +128,9 @@ def leer_catalogo(archivo, fecha, hojas_seleccionadas=None):
                 cod, stk, pre, nom, promo, div, marca, promo_lenovo, unidades = esquema
                 valor_codigo = row[cod].value
                 if valor_codigo is None or not str(valor_codigo).strip():
+                    continue
+                if any(re.search(r'\bCAJA\s+DANADA\b', norm(c.value or '')) for c in row):
+                    invalidos += 1
                     continue
                 if row[pre].value is None and row[stk].value is None and not any(row[c].value is not None for c in promo):
                     continue
