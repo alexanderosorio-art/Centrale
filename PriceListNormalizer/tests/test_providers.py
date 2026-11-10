@@ -296,6 +296,14 @@ class ProviderTests(unittest.TestCase):
         self.assertEqual(df.iloc[0].mpn, 'PN-A')
         self.assertEqual(df.iloc[0].brand, '')
 
+    def test_dell_warranty_price_is_not_product_price(self):
+        headers = ['SKU', 'PN Dell', 'Descripcion', 'Precio USD', 'Stock Ref',
+                   'Service Upgrade', 'SKU DELL', 'Precio USD']
+        summary, result = procesar_archivos([excel(headers,
+            [['A', 'PN-A', 'Notebook', 924, 32, '3 años', 'GARANTIA', 89.13]])], FECHA, 'Intcomex')
+        self.assertEqual(summary.iloc[0]['Estado'], 'Procesado')
+        self.assertEqual(result.iloc[0].currency_unaware_cost_neto, 924)
+
     def test_intcomex_hp_weekly(self):
         headers = ['Local Sku', 'MPN', 'Product Name (Local)', 'Stock', 'Llegada', 'Precio Normal', 'Precio Promo Octubre', 'Ext Gtia']
         rows = [['A', 'PN-A', 'Notebook', 714, 100, 1409, 1319, 'Precio USD 68'],

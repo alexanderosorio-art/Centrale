@@ -258,13 +258,24 @@ def leer_hpe(archivo, fecha, moneda, nombres):
 
 def procesar_intcomex_dell(df, fecha):
     cols = [normalizar_texto_columna(c) for c in df.columns]
-    if any(cols.count(c) != 1 for c in DELL):
+    if any(cols.count(c) != 1 for c in DELL - {'PRECIO USD'}):
         raise ValueError('Intcomex Dell: columnas requeridas duplicadas.')
+    precios = [i for i, c in enumerate(cols) if c == 'PRECIO USD']
+    if len(precios) > 1:
+        stock_pos = cols.index('STOCK REF')
+        garantia_pos = cols.index('SKU DELL') if cols.count('SKU DELL') == 1 else None
+        productos = [i for i in precios if i < stock_pos]
+        if (len(productos) != 1 or garantia_pos is None
+                or any(i != productos[0] and i <= garantia_pos for i in precios)):
+            raise ValueError('Intcomex Dell: no se pudo separar precio del producto y garantía.')
+        precio_producto = productos[0]
+    else:
+        precio_producto = cols.index('PRECIO USD')
     # Hay encabezados repetidos; se excluyen junto con las secciones sin datos.
     datos = df.loc[df.iloc[:, cols.index('SKU')].map(normalizar_texto_columna).ne('SKU')]
     def campo(c):
         return datos.iloc[:, cols.index(c)]
-    base = pd.DataFrame({'SKU': campo('SKU'), 'venta neto usd': campo('PRECIO USD'),
+    base = pd.DataFrame({'SKU': campo('SKU'), 'venta neto usd': datos.iloc[:, precio_producto],
         'stock actual': pd.to_numeric(campo('STOCK REF'), errors='coerce')}, index=datos.index)
     resultado = normalizar_productos(base, fecha)
     for destino, origen in [('mpn', 'PN DELL'), ('name', 'DESCRIPCION')]:
@@ -391,6 +402,12 @@ def leer(archivo, fecha, moneda, permitir_pn=False, hojas_seleccionadas=None):
         resultado = procesar_intcomex_hp_semanal(df, fecha)
         return resultado, len(df), 'Intcomex HP: precio promocional con respaldo normal. Solo Stock; Llegada no se suma. Marca no inferida.'
     elif DELL.issubset(columnas):
+        if archivo.name.lower().endswith('.xlsx'):
+            bruto = leer_hoja_xlsx_con_datos(archivo)
+            titulo = ' '.join(str(v) for v in bruto.iloc[:7].to_numpy().ravel() if pd.notna(v))
+            vigencia = re.search(r'precios\s+v[aá]lidos\s+hasta\s+el\s+(\d{2})/(\d{2})/(\d{4})', titulo, re.I)
+            if vigencia:
+                fecha = date(int(vigencia[3]), int(vigencia[2]), int(vigencia[1]))
         resultado = procesar_intcomex_dell(df, fecha)
         return resultado, len(df), 'Intcomex Dell: Precio USD y Stock Ref. Se excluyen stock cero, tránsito, Pronto Stock y hojas de garantías sin stock. Marca no inferida.'
     elif PRECIOS_TOP.issubset(columnas):
