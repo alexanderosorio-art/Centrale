@@ -148,8 +148,59 @@ def _leer_inventario_marca(archivo, fecha, hojas_seleccionadas=None):
     )
 
 
+def _leer_lenovo(archivo, fecha, moneda, hojas_seleccionadas=None):
+    """Lenovo: precios del producto, sin incorporar garantías adicionales."""
+    nombres = hojas_seleccionadas if hojas_seleccionadas is not None else obtener_nombres_hojas(archivo)
+    salida, leidos = [], 0
+    for nombre in nombres:
+        bruto = leer_hoja_xlsx_con_datos(archivo, nombre)
+        encontrada = False
+        for inicio, fila in bruto.iterrows():
+            columnas = [normalizar_texto_columna(v) for v in fila]
+            clp = 'PRECIO OFERTA CLP' in columnas
+            codigo, pn, descripcion = ('MATERIAL', 'MANUFACTURER PART NU', 'MATERIAL DESCRIPTION') if clp else ('SKU', 'PART NUMBER', 'DESCRIPCION')
+            normal = 'PRECIO NORMAL CLP' if clp else 'PRECIO NORMAL'
+            oferta = 'PRECIO OFERTA CLP' if clp else 'PRECIO OFERTA'
+            requeridas = (codigo, pn, descripcion, normal, oferta, 'STOCK')
+            if not set(requeridas).issubset(columnas):
+                continue
+            if any(columnas.count(c) != 1 for c in requeridas):
+                raise ValueError(f'Ingram Lenovo: encabezados duplicados en {nombre}.')
+            datos = bruto.iloc[inicio + 1:].dropna(how='all')
+            def campo(c):
+                return datos.iloc[:, columnas.index(c)]
+            precio_normal = pd.to_numeric(campo(normal), errors='coerce')
+            precio_oferta = pd.to_numeric(campo(oferta), errors='coerce')
+            precios = pd.concat([precio_normal, precio_oferta], axis=1)
+            precios = precios.where(precios > 0).min(axis=1)
+            codigos = campo(codigo).map(lambda v: str(int(v)) if isinstance(v, (int, float)) and pd.notna(v) and float(v).is_integer() else v)
+            base = pd.DataFrame({'SKU': codigos, 'venta neto usd': precios,
+                                 'stock actual': campo('STOCK')}, index=datos.index)
+            resultado = normalizar_productos(base, fecha)
+            resultado['mpn'] = campo(pn).loc[resultado.index].fillna('').astype(str).str.strip()
+            resultado['name'] = campo(descripcion).loc[resultado.index].fillna('').astype(str).str.strip()
+            resultado['currency'] = 'CLP' if clp else moneda
+            salida.append(resultado)
+            leidos += len(datos)
+            encontrada = True
+            break
+        if not encontrada:
+            archivo.seek(0)
+            return None
+    archivo.seek(0)
+    if not salida:
+        return None
+    resultado = pd.concat(salida, ignore_index=True)
+    resultado.attrs['currency_policy'] = 'SOURCE'
+    return resultado, leidos, ('Ingram Lenovo: menor precio positivo normal/oferta; '
+                              'CONSUMO conserva CLP. Garantías adicionales excluidas.')
+
+
 def leer(archivo, fecha, moneda, permitir_pn=False, hojas_seleccionadas=None):
     if archivo.name.lower().endswith('.xlsx'):
+        resultado = _leer_lenovo(archivo, fecha, moneda, hojas_seleccionadas)
+        if resultado is not None:
+            return resultado
         resultado = _leer_stock_y_transitos(archivo, fecha, hojas_seleccionadas)
         if resultado is not None:
             return resultado
