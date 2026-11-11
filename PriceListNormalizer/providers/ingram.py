@@ -12,6 +12,7 @@ REGLAS = ReglasTabla(
     nombre=NOMBRE,
     codigos=('MATERIAL/SKU', 'INGRAM MICRO SKU', 'IM SKU', 'MATERIAL', 'SKU INGRAM'),
     precios=('COSTO', 'PRECIOS REFERENCIALES', *PRECIOS),
+    stocks=('STOCK SIN RESERVA', 'CANTIDAD', 'STOCK DISPONIBLE', 'STOCK REFERENCIAL', 'STOCK', 'STOCK TOTAL'),
     part_numbers=(*PART_NUMBERS, 'PN'),
     lectura_acotada=True, requiere_descripcion=False, catalogo_por_pn=True,
 )
