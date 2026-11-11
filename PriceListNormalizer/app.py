@@ -3,7 +3,7 @@ import hashlib
 import pandas as pd
 import streamlit as st
 from common import calcular_expiry_date, formatear_expiry_date, normalizar_columna, consolidar, preparar_vista
-from file_readers import obtener_nombres_hojas
+from file_readers import obtener_nombres_hojas, sugerir_hojas
 from exports import generar_excel, boton_copiar_excel, boton_copiar_pn
 from processing import detectar_proveedor_lote, moneda_predeterminada, procesar_archivos
 from providers import PROVEEDORES_CONFIGURADOS, PROVEEDORES_SIN_REGLAS, OPCIONES_PROVEEDORES, REGISTRO
@@ -151,14 +151,14 @@ if archivos:
             hojas_por_archivo[indice_archivo] = list(nombres_hojas)
             continue
         huella = hashlib.sha256(f'{indice_archivo}:{archivo.name}:{import_hash_archivos[indice_archivo]}'.encode('utf-8')).hexdigest()[:16]
-        hojas_recomendadas = [nombre for nombre in nombres_hojas if normalizar_columna(nombre) == 'stock'] if proveedor == 'Ingram' else nombres_hojas
+        hojas_recomendadas = sugerir_hojas(nombres_hojas, proveedor)
         elegidas = st.multiselect(
             f'Hojas a procesar — {archivo.name}', options=nombres_hojas,
-            default=hojas_recomendadas, key=f'hojas_ingram_libres_{huella}',
-            help='Todas las hojas parten seleccionadas. Quita con × las que no quieras incluir.',
+            default=hojas_recomendadas, key=f'hojas_proveedor_{proveedor}_{huella}',
+            help='En archivos con varios mayoristas se sugieren las hojas del proveedor seleccionado. Puedes agregar hojas o quitarlas con ×. Procesa cada proveedor por separado.',
         )
         hojas_por_archivo[indice_archivo] = list(elegidas)
-        if proveedor == 'Ingram' and hojas_recomendadas:
+        if hojas_recomendadas != nombres_hojas and hojas_recomendadas:
             st.caption(f'Hoja sugerida: {", ".join(hojas_recomendadas)}. Puedes cambiar la selección.')
         if not elegidas:
             st.warning(f'Selecciona al menos una hoja de {archivo.name} para procesar.')

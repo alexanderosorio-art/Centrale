@@ -1,6 +1,18 @@
 """Lectura de archivos y detección genérica de encabezados."""
 import csv
 import pandas as pd
+import re
+
+
+def sugerir_hojas(nombres, proveedor):
+    """En libros mixtos, sugiere solo hojas identificadas para el proveedor."""
+    patrones = {'Ingram': r'\b(?:INGRAM(?: MICRO)?|IM)\b',
+                'Tecnoglobal': r'\b(?:TECNO\s*GLOBAL|TG)\b'}
+    identificadas = {p: [n for n in nombres if re.search(patron, n, re.I)]
+                    for p, patron in patrones.items()}
+    if sum(bool(hojas) for hojas in identificadas.values()) > 1:
+        return identificadas.get(proveedor, [])
+    return list(nombres)
 
 def palabras_clave_encabezado():
     return [
@@ -144,3 +156,4 @@ def leer_csv(archivo):
     encabezado, separador, encoding = detectar_csv(archivo)
     archivo.seek(0)
     return pd.read_csv(archivo, header=encabezado, sep=separador, encoding=encoding)
+
