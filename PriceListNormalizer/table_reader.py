@@ -126,7 +126,7 @@ def leer_tablas(archivo, fecha, moneda, permitir_pn=False, hojas_seleccionadas=N
             stk = next((c for c in stocks if c in cols), None)
             ofertas = [c for c in reglas.ofertas if c in cols]
             precio_neto = next((c for c in precios if c in cols), None)
-            descripcion = next((c for c in cols if c in ENCABEZADOS['nombre']
+            descripcion = next((c for c in cols if c in (*ENCABEZADOS['nombre'], 'DESCRIPCORTA')
                                 or c.startswith('DESCRIPCI')), None)
             if reglas.descripcion_exacta:
                 descripcion = reglas.descripcion_exacta if reglas.descripcion_exacta in cols else None

@@ -1,5 +1,5 @@
 """Reglas de Tecnoglobal. No se infieren datos de producto ausentes."""
-from table_reader import ReglasTabla, leer_tablas, PART_NUMBERS
+from table_reader import ReglasTabla, leer_tablas, PART_NUMBERS, PRECIOS
 import pandas as pd
 import re
 from datetime import datetime
@@ -10,8 +10,9 @@ NOMBRE = 'Tecnoglobal'
 PATRON = r'(?:TECNO[\W_]*GLOBAL|TG)'
 MONEDA = 'USD'
 REGLAS = ReglasTabla(
-    nombre=NOMBRE, codigos=('CODIGO TG', 'CODIGO', 'CODIGO SISTEMA', 'SKU'),
-    part_numbers=(*PART_NUMBERS, 'PN'),
+    nombre=NOMBRE, codigos=('CODIGO TG', 'CODIGO', 'CODIGO SISTEMA', 'SKU', 'COD. TG', 'COD TG'),
+    precios=(*PRECIOS, 'VALOR LISTA', 'U$'),
+    part_numbers=(*PART_NUMBERS, 'PN', 'ITEM / DESCRIPTION'),
     stocks=('STOCK SIN RESERVA', 'CANTIDAD', 'STOCK DISPONIBLE', 'STOCK REFERENCIAL', 'STOCK', 'QTY'),
     catalogo_por_pn=True, requiere_descripcion=False,
 )

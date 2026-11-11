@@ -196,7 +196,62 @@ def _leer_lenovo(archivo, fecha, moneda, hojas_seleccionadas=None):
                               'CONSUMO conserva CLP. Garantías adicionales excluidas.')
 
 
+def _leer_ofertas_web(archivo, fecha, hojas_seleccionadas=None):
+    nombres = hojas_seleccionadas if hojas_seleccionadas is not None else obtener_nombres_hojas(archivo)
+    salida, leidos = [], 0
+    requeridas = ('SKU IM', 'MODELO', 'MATERIAL DESCRIPTION', 'INV LIBRE',
+                  'PRECIO NORMAL USD', 'OFERTA WEB DESDE 1 UNID.')
+    for nombre in nombres:
+        archivo.seek(0)
+        bruto = pd.read_excel(archivo, sheet_name=nombre, header=None)
+        encontrada = False
+        for inicio, fila in bruto.iterrows():
+            columnas = [normalizar_texto_columna(v) for v in fila]
+            if not set(requeridas).issubset(columnas):
+                continue
+            if any(columnas.count(c) != 1 for c in requeridas):
+                raise ValueError(f'Ingram Ofertas Web: encabezados duplicados en {nombre}.')
+            datos = bruto.iloc[inicio + 1:].dropna(how='all')
+            def campo(c):
+                return datos.iloc[:, columnas.index(c)]
+            normal = pd.to_numeric(campo('PRECIO NORMAL USD'), errors='coerce')
+            oferta = pd.to_numeric(campo('OFERTA WEB DESDE 1 UNID.'), errors='coerce')
+            precios = pd.concat([normal, oferta], axis=1)
+            codigos = campo('SKU IM').map(lambda v: str(int(v)) if isinstance(v, (int, float)) and pd.notna(v) and float(v).is_integer() else v)
+            base = pd.DataFrame({'SKU': codigos,
+                                 'venta neto usd': precios.where(precios > 0).min(axis=1),
+                                 'stock actual': pd.to_numeric(campo('INV LIBRE'), errors='coerce')}, index=datos.index)
+            resultado = normalizar_productos(base, fecha)
+            resultado['mpn'] = campo('MODELO').loc[resultado.index].fillna('').astype(str).str.strip()
+            resultado['name'] = campo('MATERIAL DESCRIPTION').loc[resultado.index].fillna('').astype(str).str.strip()
+            # El proveedor escribe "Vigenvia" en esta plantilla.
+            vigencia = next((c for c in ('VIGENVIA', 'VIGENCIA') if c in columnas), None)
+            if vigencia:
+                fechas = campo(vigencia).map(lambda v: pd.to_datetime(v, format='%d.%m.%Y', errors='coerce') if isinstance(v, str) else pd.to_datetime(v, errors='coerce'))
+                for indice in resultado.index:
+                    if pd.notna(fechas.loc[indice]):
+                        resultado.loc[indice, 'expiry_date'] = fechas.loc[indice].strftime('%d-%m-%Y  12:00')
+            salida.append(resultado)
+            leidos += len(datos)
+            encontrada = True
+            break
+        if not encontrada:
+            archivo.seek(0)
+            return None
+    archivo.seek(0)
+    if not salida:
+        return None
+    resultado = pd.concat(salida, ignore_index=True)
+    resultado.attrs['currency_policy'] = 'USD_ONLY'
+    return resultado, leidos, ('Ingram Ofertas Web: SKU IM, Modelo como PN, Inv Libre; '
+                              'oferta desde 1 unidad y vigencia del proveedor. Precio desde 10 unidades excluido.')
+
+
 def leer(archivo, fecha, moneda, permitir_pn=False, hojas_seleccionadas=None):
+    if archivo.name.lower().endswith(('.xlsx', '.xls')):
+        resultado = _leer_ofertas_web(archivo, fecha, hojas_seleccionadas)
+        if resultado is not None:
+            return resultado
     if archivo.name.lower().endswith('.xlsx'):
         resultado = _leer_lenovo(archivo, fecha, moneda, hojas_seleccionadas)
         if resultado is not None:
