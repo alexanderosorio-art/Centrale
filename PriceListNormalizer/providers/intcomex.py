@@ -31,6 +31,15 @@ def leer_intcomex_xlsx(archivo):
     bruto = leer_hoja_xlsx_con_datos(archivo)
     if bruto.empty:
         raise ValueError('La primera hoja de Intcomex no contiene datos.')
+    # Hikvision también separa el precio neto en la segunda fila del encabezado.
+    for i in range(len(bruto) - 1):
+        fila = [normalizar_texto_columna(v) for v in bruto.iloc[i]]
+        siguiente = [normalizar_texto_columna(v) for v in bruto.iloc[i + 1]]
+        if {'SKU', 'PART #', 'DESCRIPCION', 'DPV'}.issubset(fila) and 'PRECIO NETO USD' in siguiente:
+            precio = siguiente.index('PRECIO NETO USD')
+            if pd.isna(bruto.iat[i, precio]) or not str(bruto.iat[i, precio]).strip():
+                bruto.iat[i, precio] = 'UNIT PRICE$'
+                break
     columnas_asus = {'SKU INTCOMEX', 'NUMERO DE PARTE', 'PRECIO USD (S/IVA)',
                      'STOCK REFERENCIAL', 'DETALLE'}
     candidatos = [i for i, fila in bruto.iterrows()
