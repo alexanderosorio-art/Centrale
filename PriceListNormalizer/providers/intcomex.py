@@ -16,6 +16,7 @@ REGLAS = ReglasTabla(
     moneda_fija='USD', catalogo_por_pn=True,
 )
 HIKVISION = {'SKU', 'PART #', 'DESCRIPCION', 'DPV', 'UNIT PRICE$'}
+TPLINK = {'PRODUCT ID', 'MPN', 'PRODUCT NAME TRAX', 'STOCK', 'PRECIO LISTA', 'PRECIO ESPECIAL'}
 PRECIOS_TOP = {'SKU', 'PART NUMBER MARCA', 'PRODUCT NAME', 'STOCK', 'PRECIOS TOP'}
 DELL = {'SKU', 'PN DELL', 'DESCRIPCION', 'PRECIO USD', 'STOCK REF'}
 HP_SEMANAL = {'LOCAL SKU', 'MPN', 'PRODUCT NAME (LOCAL)', 'STOCK', 'PRECIO NORMAL'}
@@ -46,6 +47,7 @@ def leer_intcomex_xlsx(archivo):
                   if (ASUS_BASE.issubset({normalizar_texto_columna(v) for v in fila})
                       and ASUS_PRECIOS.intersection({normalizar_texto_columna(v) for v in fila}))
                   or HIKVISION.issubset({normalizar_texto_columna(v) for v in fila})
+                  or TPLINK.issubset({normalizar_texto_columna(v) for v in fila})
                   or PRECIOS_TOP.issubset({normalizar_texto_columna(v) for v in fila})
                   or DELL.issubset({normalizar_texto_columna(v) for v in fila})
                   or HP_SEMANAL.issubset({normalizar_texto_columna(v) for v in fila})
@@ -404,6 +406,23 @@ def leer(archivo, fecha, moneda, permitir_pn=False, hojas_seleccionadas=None):
     elif CLIENTES_ESTRATEGICOS.issubset(columnas):
         resultado = procesar_clientes_estrategicos(df, fecha, archivo.name)
         return resultado, len(df), 'Intcomex: Product ID como código; precio especial Clientes Estratégicos. MPN, nombre y marca explícitos. Se conserva la vigencia indicada en el nombre del archivo, aunque esté vencida.'
+    elif TPLINK.issubset(columnas):
+        cols = [normalizar_texto_columna(c) for c in df.columns]
+        requeridas = TPLINK
+        if any(cols.count(c) != 1 for c in requeridas | ({'MANUF BRAND'} if 'MANUF BRAND' in cols else set())):
+            raise ValueError('Intcomex TP-Link: encabezados duplicados.')
+        def campo(c):
+            return df.iloc[:, cols.index(c)]
+        precios = pd.concat([campo('PRECIO LISTA').map(limpiar_numero),
+                             campo('PRECIO ESPECIAL').map(limpiar_numero)], axis=1)
+        base = pd.DataFrame({'SKU': campo('PRODUCT ID'),
+                             'venta neto usd': precios.where(precios > 0).min(axis=1),
+                             'stock actual': pd.to_numeric(campo('STOCK'), errors='coerce')}, index=df.index)
+        resultado = normalizar_productos(base, fecha)
+        for destino, origen in [('mpn', 'MPN'), ('name', 'PRODUCT NAME TRAX'), ('brand', 'MANUF BRAND')]:
+            if origen in cols:
+                resultado[destino] = campo(origen).loc[resultado.index].fillna('').astype(str).str.strip()
+        return resultado, len(df), 'Intcomex TP-Link: Stock y menor precio positivo lista/especial. Marca desde Manuf Brand.'
     elif LOGITECH.issubset(columnas):
         resultado = procesar_intcomex_logitech(df, fecha)
         return resultado, len(df), 'Intcomex Logitech: COSTO NETO USD; no se usa PVP ni costo por volumen. Stock con coma de miles. Marca no inferida.'
