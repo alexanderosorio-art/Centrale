@@ -5,6 +5,7 @@ import re
 from datetime import date
 from common import normalizar_productos, normalizar_texto_columna, limpiar_numero
 from file_readers import leer_csv, detectar_encabezado, leer_hoja_xlsx_con_datos, palabras_clave_encabezado, obtener_nombres_hojas
+from catalog_lookup import resolver_por_catalogo
 
 NOMBRE = 'Intcomex'
 PATRON = r'(?:INTCOMEX|IX)'
@@ -217,6 +218,7 @@ def leer_hpe(archivo, fecha, moneda, nombres):
         if norm not in ('LP GEN 11', 'LP GEN12', 'NETWORKING'):
             continue
         bruto = leer_hoja_xlsx_con_datos(archivo, nombre)
+        reconocida = False
         for indice, fila in bruto.iterrows():
             cols = [normalizar_texto_columna(v) for v in fila]
             if norm == 'NETWORKING':
@@ -226,21 +228,26 @@ def leer_hpe(archivo, fecha, moneda, nombres):
                     continue
                 cod, pn, desc, stockcol, normal, promo, entrega = 7, 1, 2, 3, 4, 5, 6
             else:
-                requeridas = {'SKU INTCOMEX', 'DESCRIPCION', 'PRECIO UN VENTA', 'PRECIO PROMO REFERENCIAL'}
+                requeridas = {'DESCRIPCION', 'PRECIO UN VENTA'}
+                promocol = next((c for c in ('PRECIO PROMO REFERENCIAL', 'PRECIO PROMO USD') if c in cols), None)
                 pncol = next((c for c in ('PN', 'PART NUMBER') if c in cols), None)
                 tiempocol = next((c for c in ('TIEMPO ENTREGA', 'TIEMPO DE ENTREGA') if c in cols), None)
-                if not requeridas.issubset(cols) or not pncol or not tiempocol:
+                if not requeridas.issubset(cols) or not pncol or not tiempocol or not promocol:
                     continue
-                if any(cols.count(c) != 1 for c in requeridas | {pncol, tiempocol}):
+                if any(cols.count(c) != 1 for c in requeridas | {pncol, tiempocol, promocol} | ({'SKU INTCOMEX'} if 'SKU INTCOMEX' in cols else set())):
                     raise ValueError(f'Intcomex HPE: columnas duplicadas en {nombre}.')
-                cod, pn, desc = [cols.index(c) for c in ('SKU INTCOMEX', pncol, 'DESCRIPCION')]
-                normal, promo = [cols.index(c) for c in ('PRECIO UN VENTA', 'PRECIO PROMO REFERENCIAL')]
+                cod = cols.index('SKU INTCOMEX') if 'SKU INTCOMEX' in cols else None
+                pn, desc = [cols.index(c) for c in (pncol, 'DESCRIPCION')]
+                normal, promo = [cols.index(c) for c in ('PRECIO UN VENTA', promocol)]
                 entrega = cols.index(tiempocol)
                 stockcol = None
-            datos = bruto.iloc[indice + 1:].dropna(how='all')
+            reconocida = True
+            fin = next((j for j in range(indice + 1, len(bruto))
+                        if normalizar_texto_columna(bruto.iloc[j, 0]) == 'FORMATO'), len(bruto))
+            datos = bruto.iloc[indice + 1:fin].dropna(how='all')
             leidos += len(datos)
             estado = datos.iloc[:, entrega].map(normalizar_texto_columna)
-            inmediato = estado.str.contains(r'\bENT(?:R)?REGA INMEDIATA\b', regex=True)
+            inmediato = estado.str.contains(r'\bENT(?:R)?REGA INMEDIATA\b|\bDISPONIBLES\b', regex=True)
             inmediato &= ~estado.str.contains(r'TRANSITO|FABRICA|PEDIDO|NO DISPONIBLE|SIN STOCK', regex=True)
             if stockcol is None:
                 cantidades = pd.to_numeric(estado.str.extract(r'^\s*(\d+)\s*(?:UNIDADES|UNIDAD|UN)\b', expand=False), errors='coerce')
@@ -249,16 +256,23 @@ def leer_hpe(archivo, fecha, moneda, nombres):
             precio_normal = datos.iloc[:, normal].map(limpiar_numero)
             promocion = datos.iloc[:, promo].map(limpiar_numero)
             precio = promocion.where(promocion > 0, precio_normal)
-            base = pd.DataFrame({'SKU': datos.iloc[:, cod], 'venta neto usd': precio,
+            base = pd.DataFrame({'SKU': datos.iloc[:, cod] if cod is not None else '', 'venta neto usd': precio,
                                  'stock actual': cantidades.where(inmediato)}, index=datos.index)
+            if cod is None:
+                tabla = base.rename(columns={'SKU': 'provider_code', 'venta neto usd': 'currency_unaware_cost_neto', 'stock actual': 'quantity'})
+                tabla['mpn'] = datos.iloc[:, pn].fillna('').astype(str).str.strip()
+                tabla['name'] = datos.iloc[:, desc].fillna('').astype(str).str.strip()
+                tabla['brand'] = ''
+                tabla = tabla[(tabla.quantity > 0) & (tabla.currency_unaware_cost_neto > 0)].copy()
+                tabla, pendientes, _ = resolver_por_catalogo(tabla, NOMBRE)
+                base = tabla.drop(index=pendientes).rename(columns={'provider_code': 'SKU', 'currency_unaware_cost_neto': 'venta neto usd', 'quantity': 'stock actual'})
             result = normalizar_productos(base, fecha)
             result['mpn'] = datos.loc[result.index].iloc[:, pn].fillna('').astype(str).str.strip()
             result['name'] = datos.loc[result.index].iloc[:, desc].fillna('').astype(str).str.strip()
             result['currency'] = moneda
             salida.append(result)
             usadas.append(nombre)
-            break
-        else:
+        if not reconocida:
             raise ValueError(f'Intcomex HPE: estructura no reconocida en {nombre}; revisa los encabezados.')
     archivo.seek(0)
     if not salida:
