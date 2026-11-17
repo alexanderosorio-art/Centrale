@@ -10,7 +10,7 @@ FORMATOS = {
                 'Forza Disponible', 'Nexxt Disponible', 'HONOR aportes'],
     'Ingram': ['Tabla estándar con SKU', 'Stock y tránsitos', 'PN/QTY/Precio y consolidado',
                'Inventario de marca con P.Lista', 'Aruba Precios Referenciales', 'Lenovo normal/oferta y Consumo CLP', 'ADATA Ofertas Web'],
-    'Tecnoglobal': ['Tabla estándar y cruce por PN', 'Componentes Precio Volumen', 'Linksys', 'Cyber'],
+    'Tecnoglobal': ['Tabla estándar y cruce por PN', 'Componentes Precio Volumen', 'Linksys', 'Cyber', 'Suministros HP Aging'],
     'Fujicorp': ['Catálogo con ofertas (Precio/PMIN)', 'ACER llegada'],
     'Coimco': ['Catálogo con stock y precios'],
     'Kepler': ['Tabla estándar', 'Preventa TT'],

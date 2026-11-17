@@ -27,6 +27,27 @@ def leer(archivo, fecha, moneda, permitir_pn=False, hojas_seleccionadas=None):
             bruto = leer_hoja_xlsx_con_datos(archivo, nombre)
             for indice, fila in bruto.iterrows():
                 cols = [normalizar_texto_columna(v) for v in fila]
+                aging = {'SKU', 'PARTNUMBER', 'DESCRIPCION', 'STOCK', 'VALOR', 'AGING', 'VALOR AGING'}
+                if aging.issubset(cols):
+                    if any(cols.count(c) != 1 for c in aging):
+                        raise ValueError(f'Tecnoglobal Aging: encabezados duplicados en {nombre}.')
+                    datos = bruto.iloc[indice + 1:].dropna(how='all')
+                    def campo(c):
+                        return datos.iloc[:, cols.index(c)]
+                    cantidad_aging = pd.to_numeric(campo('AGING'), errors='coerce')
+                    precio_aging = campo('VALOR AGING').map(limpiar_numero)
+                    usar_aging = (cantidad_aging > 0) & (precio_aging > 0)
+                    base = pd.DataFrame({'SKU': campo('SKU'),
+                        'venta neto usd': precio_aging.where(usar_aging, campo('VALOR').map(limpiar_numero)),
+                        'stock actual': cantidad_aging.where(usar_aging, pd.to_numeric(campo('STOCK'), errors='coerce'))}, index=datos.index)
+                    result = normalizar_productos(base, fecha)
+                    result['mpn'] = campo('PARTNUMBER').loc[result.index].fillna('').astype(str).str.strip()
+                    result['name'] = campo('DESCRIPCION').loc[result.index].fillna('').astype(str).str.strip()
+                    result['currency'] = moneda
+                    salida.append(result)
+                    usadas.append(nombre)
+                    leidos += len(datos)
+                    break
                 lenovo = {'CODIGO', 'PART NUMBER', 'DESCRIPCION', 'ESTADO', 'CANTIDAD', 'PRECIO STOCK USD'}
                 if lenovo.issubset(cols):
                     if any(cols.count(c) != 1 for c in lenovo):
@@ -118,6 +139,6 @@ def leer(archivo, fecha, moneda, permitir_pn=False, hojas_seleccionadas=None):
             resultado = pd.concat(salida, ignore_index=True)
             resultado.attrs['currency_policy'] = 'SOURCE'
             return resultado, leidos, ('Hojas procesadas: ' + ', '.join(usadas) +
-                '. Lenovo: Precio Stock USD, solo En stock, sin garantías ni próximas llegadas. Componentes: Precio Volumen; Linksys: Precio Especial USD; Cyber: precio Cyber CLP y vigencia limitada al archivo. Monedas sin conversión.')
+                '. Aging: VALOR AGING con cantidad AGING si ambos son positivos; en los demás, VALOR con STOCK. Lenovo: Precio Stock USD, solo En stock, sin garantías ni próximas llegadas. Componentes: Precio Volumen; Linksys: Precio Especial USD; Cyber: precio Cyber CLP y vigencia limitada al archivo. Monedas sin conversión.')
     return leer_tablas(archivo, fecha, moneda, permitir_pn, hojas_seleccionadas, reglas=REGLAS)
 
