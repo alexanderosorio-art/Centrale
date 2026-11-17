@@ -27,6 +27,27 @@ def leer(archivo, fecha, moneda, permitir_pn=False, hojas_seleccionadas=None):
             bruto = leer_hoja_xlsx_con_datos(archivo, nombre)
             for indice, fila in bruto.iterrows():
                 cols = [normalizar_texto_columna(v) for v in fila]
+                lenovo = {'CODIGO', 'PART NUMBER', 'DESCRIPCION', 'ESTADO', 'CANTIDAD', 'PRECIO STOCK USD'}
+                if lenovo.issubset(cols):
+                    if any(cols.count(c) != 1 for c in lenovo):
+                        raise ValueError(f'Tecnoglobal Lenovo: encabezados duplicados en {nombre}.')
+                    datos = bruto.iloc[indice + 1:].dropna(how='all')
+                    def campo(c):
+                        return datos.iloc[:, cols.index(c)]
+                    disponible = campo('ESTADO').map(normalizar_texto_columna).eq('EN STOCK')
+                    codigos = campo('CODIGO').fillna('').astype(str).str.strip()
+                    producto = disponible & codigos.ne('') & codigos.ne('Código')
+                    base = pd.DataFrame({'SKU': codigos,
+                        'venta neto usd': campo('PRECIO STOCK USD').map(limpiar_numero),
+                        'stock actual': pd.to_numeric(campo('CANTIDAD'), errors='coerce').where(producto)}, index=datos.index)
+                    result = normalizar_productos(base, fecha)
+                    result['mpn'] = campo('PART NUMBER').loc[result.index].fillna('').astype(str).str.strip()
+                    result['name'] = campo('DESCRIPCION').loc[result.index].fillna('').astype(str).str.strip()
+                    result['currency'] = 'USD'
+                    salida.append(result)
+                    usadas.append(nombre)
+                    leidos += len(datos)
+                    break
                 linksys = {'MARCA', 'S.K.U.', 'PARTNUMBER', 'DESCRIPCION', 'PRECIO ESPECIAL', 'STOCK DISPONIBLE'}
                 cyber = {'COD. TG', 'PARTNUMBER', 'DESCRIPCION', 'STOCK', 'PRECIO VENTA', 'CYBER'}
                 plantilla = 'Linksys' if linksys.issubset(cols) else 'Cyber' if cyber.issubset(cols) else None
@@ -93,9 +114,10 @@ def leer(archivo, fecha, moneda, permitir_pn=False, hojas_seleccionadas=None):
                 else:
                     salida.append(otro)
                     leidos += cantidad
+                    usadas.append(nombre)
             resultado = pd.concat(salida, ignore_index=True)
             resultado.attrs['currency_policy'] = 'SOURCE'
             return resultado, leidos, ('Hojas procesadas: ' + ', '.join(usadas) +
-                '. Componentes: Precio Volumen; Linksys: Precio Especial USD; Cyber: precio Cyber CLP y vigencia limitada al archivo. Monedas sin conversión.')
+                '. Lenovo: Precio Stock USD, solo En stock, sin garantías ni próximas llegadas. Componentes: Precio Volumen; Linksys: Precio Especial USD; Cyber: precio Cyber CLP y vigencia limitada al archivo. Monedas sin conversión.')
     return leer_tablas(archivo, fecha, moneda, permitir_pn, hojas_seleccionadas, reglas=REGLAS)
 
