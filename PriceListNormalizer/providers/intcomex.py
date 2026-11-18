@@ -387,6 +387,21 @@ def leer(archivo, fecha, moneda, permitir_pn=False, hojas_seleccionadas=None):
         df = leer_csv(archivo)
     elif archivo.name.lower().endswith('.xlsx'):
         nombres = obtener_nombres_hojas(archivo)
+        seleccionadas = nombres if hojas_seleccionadas is None else hojas_seleccionadas
+        for nombre in seleccionadas:
+            bruto_lenovo = leer_hoja_xlsx_con_datos(archivo, nombre)
+            es_lenovo = any(
+                {'SKU', 'P/N', 'DESCRIPCION', 'STOCK'}.issubset({normalizar_texto_columna(v) for v in fila})
+                and {'PRECIO NORMAL USD$', 'USD$ SIN IVA'}.intersection({normalizar_texto_columna(v) for v in fila})
+                for _, fila in bruto_lenovo.iterrows())
+            if es_lenovo:
+                from dataclasses import replace
+                reglas = replace(REGLAS, precios=('PRECIO NORMAL USD$', 'USD$ SIN IVA'),
+                    ofertas=('PRECIO OFERTA USD$',), preferir_oferta=True,
+                    stock_estricto=True, lectura_acotada=True)
+                resultado, leidos, detalle = leer_tablas(archivo, fecha, moneda, permitir_pn, seleccionadas, reglas=reglas)
+                resultado.attrs['currency_policy'] = 'USD_ONLY'
+                return resultado, leidos, detalle + '. Lenovo: menor precio positivo normal/oferta; accesorios USD$ sin IVA. Solo stock numérico, sin tránsito ni garantías sugeridas.'
         if any(normalizar_texto_columna(n) in ('LP GEN 11', 'LP GEN12') for n in nombres):
             return leer_hpe(archivo, fecha, moneda, nombres if hojas_seleccionadas is None else hojas_seleccionadas)
         df = leer_intcomex_xlsx(archivo)
