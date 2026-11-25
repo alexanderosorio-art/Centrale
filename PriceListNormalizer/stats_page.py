@@ -7,7 +7,7 @@ FORMATOS = {
     'Intcomex': ['Tabla estándar', 'ASUS Business', 'WD Centrale', 'Hikvision',
                 'Precios Top', 'HPE Gen11/Gen12', 'Dell', 'HP semanal', 'Logitech CSV',
                 'Clientes Estratégicos con Product ID', 'Clientes Estratégicos con SKU (WD/AMD/Sandisk)',
-                'Forza Disponible', 'Nexxt Disponible', 'HONOR aportes'],
+                'Forza Disponible', 'Nexxt Disponible', 'HONOR aportes', 'Nexxt PDF multipágina'],
     'Ingram': ['Tabla estándar con SKU', 'Stock y tránsitos', 'PN/QTY/Precio y consolidado',
                'Inventario de marca con P.Lista', 'Aruba Precios Referenciales', 'Lenovo normal/oferta y Consumo CLP', 'ADATA Ofertas Web'],
     'Tecnoglobal': ['Tabla estándar y cruce por PN', 'Componentes Precio Volumen', 'Linksys', 'Cyber', 'Suministros HP Aging'],

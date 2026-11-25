@@ -381,6 +381,10 @@ def procesar_clientes_estrategicos(df, fecha, nombre):
 
 def leer(archivo, fecha, moneda, permitir_pn=False, hojas_seleccionadas=None):
     if archivo.name.lower().endswith('.pdf'):
+        from intcomex_nexxt_pdf import leer_nexxt_pdf
+        nexxt = leer_nexxt_pdf(archivo, fecha)
+        if nexxt is not None:
+            return nexxt
         return leer_tablas(archivo, fecha, moneda, permitir_pn, hojas_seleccionadas, reglas=REGLAS)
     archivo.seek(0)
     if archivo.name.lower().endswith('.csv'):
